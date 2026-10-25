@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
 import './styles.css';
 import { supabase, supabaseConfigured } from './lib/supabase.js';
+import MiniExcel from './MiniExcel.jsx';
 
 const TEACHER = 'JHILVER ELOY QUISPE BARRAZA';
 const AGES = ['3 años','4 años','5 años'];
@@ -77,17 +78,21 @@ const DRAG_MISSIONS = [
 
 function grade(p){return p>=90?'AD':p>=60?'A':p>=30?'B':'C'}
 function readRecords(){try{return JSON.parse(localStorage.getItem('pmd_records')||'[]')}catch{return []}}
+const ACTIVE_SESSION_KEY = 'pmd_active_session_v1';
+function readActiveSession(){try{const s=JSON.parse(localStorage.getItem(ACTIVE_SESSION_KEY)||'null');if(s&&Date.now()-s.updatedAt<2*60*60*1000)return s;localStorage.removeItem(ACTIVE_SESSION_KEY)}catch{}return null}
 function App(){
- const [view,setView]=useState('home');
- const [student,setStudent]=useState({first:'',last:'',age:'3 años'});
+ const [initialSession] = useState(readActiveSession);
+ const [view,setView]=useState(()=>initialSession?.view || 'home');
+ const [student,setStudent]=useState(()=>initialSession?.student || {first:'',last:'',age:'3 años'});
  const [sound,setSound]=useState(false);
- const [game,setGame]=useState('keyboard');
- const [level,setLevel]=useState(1);
+ const [game,setGame]=useState(()=>initialSession?.game || 'keyboard');
+ const [level,setLevel]=useState(()=>initialSession?.level || 1);
  const [records,setRecords]=useState(readRecords);
  const [pass,setPass]=useState('');
  const [teacherEmail,setTeacherEmail]=useState('');
  const [dbMessage,setDbMessage]=useState('');
  const [dateMode,setDateMode]=useState('all');
+ const [reportGame,setReportGame]=useState('miniexcel');
  const [dateFrom,setDateFrom]=useState('2026-10-01');
  const [dateTo,setDateTo]=useState('2026-10-24');
  const [singleDate,setSingleDate]=useState('2026-10-24');
@@ -111,6 +116,13 @@ function App(){
  const levelStartedAtRef=useRef(Date.now());
  const firstActionAtRef=useRef(null);
  const lastActionAtRef=useRef(Date.now());
+ useEffect(()=>{
+  try {
+   if(view==='home' && !student.first && !student.last){const old=readActiveSession();if(!old)return;}
+   localStorage.setItem(ACTIVE_SESSION_KEY,JSON.stringify({view,student,game,level,updatedAt:Date.now()}));
+  } catch {}
+ },[view,student,game,level]);
+ useEffect(()=>{const timer=window.setInterval(()=>{try{const s=JSON.parse(localStorage.getItem(ACTIVE_SESSION_KEY)||'null');if(s){s.updatedAt=Date.now();localStorage.setItem(ACTIVE_SESSION_KEY,JSON.stringify(s));}}catch{}},60*1000);return ()=>window.clearInterval(timer)},[]);
  const actionCountRef=useRef(0);
  const errorCountRef=useRef(0);
  const blockedMoveCountRef=useRef(0);
@@ -281,7 +293,7 @@ function App(){
   return ()=>{window.removeEventListener('keydown',onKey,true);window.removeEventListener('pointerdown',onPointer,true);document.removeEventListener('visibilitychange',onVisibility)};
  },[view]);
  function start(e){e.preventDefault();if(!student.first.trim()||!student.last.trim())return;setView('games')}
- function startGame(which){setGame(which);setLevel(1);resetLevel();resetTelemetry();setView('play');say(which==='keyboard'?'Usa las flechas para guiar al personaje.':'Sigue el contorno con el mouse.')}
+ function startGame(which){if(which==='miniexcel'&&student.age!=='5 años'){say('MiniExcel está disponible por ahora para niños de 5 años.');return}setGame(which);setLevel(1);resetLevel();resetTelemetry();setView('play');say(which==='keyboard'?'Usa las flechas para guiar al personaje.':which==='miniexcel'?'Bienvenido a MiniExcel. Vamos a pintar celdas.':'Sigue el contorno con el mouse.')}
  function resetLevel(){completedRef.current=false;resetTelemetry();tracePointsRef.current=[];traceStrokesRef.current=[];setTraceStrokes([]);setPos([0,0]);setCollected(0);setTracePct(0);setTracePoints([]);setClicked([]);setDragged(false);setDraggedItems([]);setAttempts(0)}
  function move(key){
   const dirs={ArrowUp:[-1,0],ArrowDown:[1,0],ArrowLeft:[0,-1],ArrowRight:[0,1]},d=dirs[key];if(!d)return;
@@ -310,7 +322,7 @@ function App(){
   // El tiempo se registra como dato contextual y no reduce la nota.
   const errors=Math.max(0,Number(telemetry.errorCount)||0);
   const actions=Math.max(0,Number(telemetry.actionCount)||0);
-  const precision=actions>0?Math.round(Math.max(0,Math.min(100,((actions-errors)/actions)*100))):100;
+  const precision=typeof telemetry.actionAccuracyPercent==='number'?Math.max(0,Math.min(100,telemetry.actionAccuracyPercent)):(actions>0?Math.round(Math.max(0,Math.min(100,((actions-errors)/actions)*100))):100);
   const hints=Math.max(0,Number(telemetry.hintsUsed)||0);
   const autonomy=Math.max(0,100-(hints*20));
   const achievement=Math.max(0,Math.min(100,Number(pct)||0));
@@ -324,6 +336,7 @@ function App(){
   const finalMetrics={...telemetry,rubric,levelOutcome:'completed',levelScore:rubric.finalScore};
   saveRecord(rubric.finalScore,finalMetrics);
   setFeedback(`¡Nivel superado! Desempeño: ${rubric.finalScore}/100`);
+  if(game==='miniexcel') return; // MiniExcel espera que el niño pulse el botón de continuar.
   setTimeout(()=>{if(level>=30){setView('finished')}else{setLevel(n=>n+1);resetLevel();say('¡Muy bien! Aquí viene el siguiente reto.')}},900);
  }
  function measureTrace(points){
@@ -399,57 +412,10 @@ function App(){
   setView('home');setPass('');setTeacherEmail('');setDbMessage('');
  }
  const filteredRecords=useMemo(()=>records.filter(r=>{if(dateMode==='all')return true;const stamp=new Date(r.date);if(Number.isNaN(stamp.getTime()))return false;const day=`${stamp.getFullYear()}-${String(stamp.getMonth()+1).padStart(2,'0')}-${String(stamp.getDate()).padStart(2,'0')}`;if(dateMode==='day')return day===singleDate;return day>=dateFrom&&day<=dateTo}),[records,dateMode,dateFrom,dateTo,singleDate]);
-  const reports=useMemo(()=>{
-   // Recalcula la evaluación con los registros que corresponden a la consulta actual.
-   const groups=new Map();
-   for(const record of filteredRecords){
-    const normalizedName=String(record.name||'').trim().toLocaleLowerCase('es');
-    const key=`${normalizedName}|${record.age||''}`;
-    if(!groups.has(key))groups.set(key,[]);
-    groups.get(key).push(record);
-   }
-   const average=(items,selector)=>{
-    const values=items.map(selector).filter(v=>typeof v==='number'&&Number.isFinite(v));
-    return values.length?Math.round(values.reduce((sum,v)=>sum+v,0)/values.length):null;
-   };
-   const levelCount=items=>new Set(items.map(r=>r.level)).size;
-   const scoreOf=r=>{
-    const score=r.metrics?.rubric?.finalScore ?? r.metrics?.levelScore ?? r.percent;
-    return typeof score==='number'&&Number.isFinite(score)?score:null;
-   };
-   return [...groups.entries()].map(([key,items])=>{
-    const keyboard=items.filter(r=>r.game==='keyboard');
-    const mouse=items.filter(r=>r.game==='mouse');
-    const click=mouse.filter(r=>r.level>=1&&r.level<=10);
-    const drag=mouse.filter(r=>r.level>=11&&r.level<=20);
-    const drawing=mouse.filter(r=>r.level>=21&&r.level<=30);
-    const keyboardCount=levelCount(keyboard), mouseCount=levelCount(mouse);
-    const clickCount=levelCount(click), dragCount=levelCount(drag), drawingCount=levelCount(drawing);
-    const performance=average(items,scoreOf);
-    // Cada capacidad se calcula con los resultados de sus actividades asociadas.
-    const personalizeScore=average(drawing,scoreOf);
-    const manageScore=average([...click,...drag],scoreOf);
-    const interactScore=average(keyboard,scoreOf);
-    const createScore=average(drawing,scoreOf);
-    const values=[personalizeScore,manageScore,interactScore,createScore];
-    const evidenceCounts=[drawingCount,clickCount+dragCount,keyboardCount,drawingCount];
-    return {
-     key,name:items[0].name,age:items[items.length-1]?.age,records:items.length,
-     keyboardCount,mouseCount,clickCount,dragCount,drawingCount,
-     keyboardProgress:Math.round(keyboardCount/30*100),mouseProgress:Math.round(mouseCount/30*100),
-     overall:performance,
-     grades:CAPS.map((capability,index)=>{
-      const score=values[index];
-      // Si no hay registros para esta capacidad, se muestra 0 % y C
-      // según el criterio de evaluación solicitado por el docente.
-      const currentScore=score===null?0:score;
-      return {name:capability,percent:currentScore,grade:grade(currentScore),evidence:evidenceCounts[index]};
-     })
-    };
-   });
-  },[filteredRecords]);
-function exportExcel(){
-  // Exporta un resumen consolidado por estudiante, no una fila por cada nivel.
+ const reportRecords=useMemo(()=>reportGame==='all'?filteredRecords:filteredRecords.filter(r=>r.game===reportGame),[filteredRecords,reportGame]);
+ function exportExcel(){
+  // Cada informe exporta únicamente el juego seleccionado; MiniExcel nunca se mezcla con los otros juegos.
+  const exportReports=reports;
   const rows=[
    [
     'Estudiante','Edad','Intentos en el periodo',
@@ -458,7 +424,7 @@ function exportExcel(){
     'Interactúa en entornos virtuales (%)','Nota',
     'Crea objetos virtuales en diversos formatos (%)','Nota'
    ],
-   ...reports.map(r=>[
+   ...exportReports.map(r=>[
     r.name,
     r.age,
     r.records,
@@ -483,17 +449,69 @@ function exportExcel(){
   const workbook=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook,worksheet,'Resumen por estudiante');
   const filterLabel=dateMode==='all'?'todos-los-registros':dateMode==='day'?singleDate:`${dateFrom}_a_${dateTo}`;
-  XLSX.writeFile(workbook,`pequemundo-notas-por-capacidad-${filterLabel}.xlsx`);
+  const gameLabel=reportGame==='miniexcel'?'miniexcel':reportGame==='keyboard'?'aventuras-flechitas':reportGame==='mouse'?'mouse-magico':'todos-los-juegos';
+  XLSX.writeFile(workbook,`pequemundo-informe-${gameLabel}-${filterLabel}.xlsx`);
  }
-
+ const reports=useMemo(()=>{
+   // Agrupa por nombre normalizado y edad para no mezclar estudiantes distintos.
+   const groups=new Map();
+   for(const record of reportRecords){
+    const normalizedName=String(record.name||'').trim().toLocaleLowerCase('es');
+    const key=`${normalizedName}|${record.age||''}`;
+    if(!groups.has(key))groups.set(key,[]);
+    groups.get(key).push(record);
+   }
+   const average=(items,selector)=>{
+    const values=items.map(selector).filter(v=>typeof v==='number'&&Number.isFinite(v));
+    return values.length?Math.round(values.reduce((sum,v)=>sum+v,0)/values.length):null;
+   };
+   return [...groups.entries()].map(([key,items])=>{
+    // Si una capacidad no tiene métrica guardada, se informa S/D, no cero.
+    const values=[
+     // Estas dos capacidades requieren actividades específicas antes de calificarse.
+     average(items,r=>r.metrics?.personalize),
+     average(items,r=>r.metrics?.manage),
+     average(items,r=>(r.game==='keyboard'||(r.game==='miniexcel'&&r.level<=20))?(r.metrics?.rubric?.finalScore ?? Number(r.percent)):null),
+     average(items,r=>{
+      if(r.game==='miniexcel'&&r.level>=21)return r.metrics?.rubric?.finalScore ?? Number(r.percent);
+      if(r.game!=='mouse')return null;
+      const rubricScore=r.metrics?.rubric?.finalScore;
+      if(typeof rubricScore==='number'&&Number.isFinite(rubricScore))return rubricScore;
+      for(const metricName of ['drawingAccuracy','mouseAccuracy','clickAccuracy']){
+       const value=r.metrics?.[metricName];
+       if(typeof value==='number'&&Number.isFinite(value))return value;
+      }
+      return null;
+     })
+    ];
+    const overall=average(items,r=>typeof r.metrics?.rubric?.finalScore==='number'?r.metrics.rubric.finalScore:Number(r.percent));
+    return {
+     key,
+     name:items[0].name,
+     age:items[items.length-1]?.age,
+     records:items.length,
+     overall,
+     grades:CAPS.map((capability,index)=>({
+      name:capability,
+      percent:values[index],
+      grade:values[index]===null?'S/D':grade(values[index])
+     }))
+    };
+   });
+  },[reportRecords]);
   const isTrace=game==='mouse'&&level>=21;
  const isDrag=game==='mouse'&&level>=11&&level<=20;
- const title=game==='keyboard'?KEY_TITLES[level-1]:MOUSE_TITLES[level-1];
+ const title=game==='keyboard'?KEY_TITLES[level-1]:game==='miniexcel'?(['Pinta las celdas','Busca coordenadas','Forma el mosaico'][level<=10?0:level<=20?1:2]):MOUSE_TITLES[level-1];
  return <div className={view==='play'?'app-shell playing':view==='teacher'?'app-shell teacher-shell':'app-shell'}>
  <header className="topbar"><div className="brand-mark">✦</div><div><strong>PequeMundo Digital</strong><small>Aprendemos jugando con la computadora</small></div><div className="top-actions"><button className="sound-btn" onClick={()=>setSound(v=>!v)}>{sound?'🔊 Sonido activado':'🔇 Sonido desactivado'}</button>{view==='play'&&<button className="ghost" onClick={toggleFullscreen}>{fullscreen?'Salir de pantalla completa':'⛶ Pantalla completa'}</button>}<button className="ghost" onClick={()=>{setView('login');setError('')}}>Panel docente</button></div></header>
  {view==='home'&&<main className="welcome layout"><section className="hero"><div className="eyebrow">EXPLORAR · PRACTICAR · APRENDER</div><h1>¡Hola, pequeño<br/><span>explorador!</span></h1><p>Prepárate para una aventura con el teclado y el mouse.</p><div className="hero-art"><div className="sun"></div><div className="rainbow">🌈</div><div className="mascot">🐭</div><div className="cloud cloud-one">☁️</div><div className="cloud cloud-two">☁️</div><div className="star star-one">⭐</div><div className="star star-two">✨</div></div></section><form className="student-form panel" onSubmit={start}><div className="form-icon">🎒</div><h2>¿Quién va a jugar?</h2><p>Escribe tu nombre para comenzar.</p><label>Nombres<input value={student.first} onChange={e=>setStudent(s=>({...s,first:e.target.value}))} required maxLength="80" placeholder="Nombres del estudiante"/></label><label>Apellidos<input value={student.last} onChange={e=>setStudent(s=>({...s,last:e.target.value}))} required maxLength="80" placeholder="Apellidos del estudiante"/></label><label>Edad<select value={student.age} onChange={e=>setStudent(s=>({...s,age:e.target.value}))}>{AGES.map(a=><option key={a}>{a}</option>)}</select></label><button className="primary big">¡Empezar a jugar! <span>➜</span></button><small className="privacy-note">Docente: {TEACHER}</small></form></main>}
- {view==='games'&&<main className="layout games-view"><div className="section-heading"><div><div className="eyebrow">¡QUÉ BUENO VERTE, {student.first.toUpperCase()}!</div><h1>¿A qué aventura jugamos?</h1><p>Elige una tarjeta para comenzar. Puedes jugar en cualquier orden.</p></div><div className="level-chip">👤 {name} · {student.age}</div></div><div className="game-cards"><button className="game-card keyboard-card" onClick={()=>startGame('keyboard')}><div className="card-art keyboard-art"><span>⬆️</span><span>⬅️</span><span>⬇️</span><span>➡️</span><div className="art-mascot">🐰</div></div><div className="card-copy"><span className="tag blue">30 NIVELES</span><h2>Aventuras con Flechitas</h2><p>Usa las flechas del teclado para guiar a tu personaje.</p><div className="card-bottom">¡Vamos a movernos! <b>➜</b></div></div></button><button className="game-card mouse-card" onClick={()=>startGame('mouse')}><div className="card-art mouse-art"><span className="fruit">🍎</span><span className="fruit">🍐</span><span className="fruit">🍓</span><div className="art-mascot">🖱️</div></div><div className="card-copy"><span className="tag orange">30 NIVELES</span><h2>Mouse Mágico</h2><p>Practica el clic, el arrastre y los dibujos siguiendo un rastro.</p><div className="card-bottom">¡A dibujar y descubrir! <b>➜</b></div></div></button></div><button className="ghost" onClick={()=>setView('home')}>← Volver al inicio</button></main>}
- {view==='play'&&<main className="layout play-view"><div className="play-top"><button className="ghost" onClick={()=>setView('games')}>← Juegos</button><div><span className="tag blue">NIVEL {level} DE 30</span><h1>{title}</h1></div><div className="progress-wrap"><div className="progress-label">Progreso del nivel <b>{isTrace?tracePct:Math.min(100,collected*12)}%</b></div><div className="progress-bar"><span style={{width:`${isTrace?tracePct:Math.min(100,collected*12)}%`}}/></div></div></div><div className="play-instruction">{game==='keyboard'?`Usa las flechas para llevar al conejito a la meta. Nivel ${level}: ${title}.` : isTrace?`Sigue el contorno de ${shape.name.toLowerCase()}. Puedes soltar y continuar; comprueba al terminar.` : isDrag?dragMission.prompt:'Haz clic en tres objetos para completar la misión.'}</div>
+ {view==='games'&&<main className="layout games-view"><div className="section-heading"><div><div className="eyebrow">¡QUÉ BUENO VERTE, {student.first.toUpperCase()}!</div><h1>¿A qué aventura jugamos?</h1><p>Elige una tarjeta para comenzar. Puedes jugar en cualquier orden.</p></div><div className="level-chip">👤 {name} · {student.age}</div></div><div className="game-cards">
+ <button className="game-card keyboard-card" onClick={()=>startGame('keyboard')}><div className="card-art keyboard-art"><span>⬆️</span><span>⬅️</span><span>⬇️</span><span>➡️</span><div className="art-mascot">🐰</div></div><div className="card-copy"><span className="tag blue">30 NIVELES</span><h2>Aventuras con Flechitas</h2><p>Usa las flechas del teclado para guiar a tu personaje.</p><div className="card-bottom">¡Vamos a movernos! <b>➜</b></div></div></button>
+ <button className="game-card mouse-card" onClick={()=>startGame('mouse')}><div className="card-art mouse-art"><span className="fruit">🍎</span><span className="fruit">🍐</span><span className="fruit">🍓</span><div className="art-mascot">🖱️</div></div><div className="card-copy"><span className="tag orange">30 NIVELES</span><h2>Mouse Mágico</h2><p>Practica el clic, el arrastre y los dibujos siguiendo un rastro.</p><div className="card-bottom">¡A dibujar y descubrir! <b>➜</b></div></div></button>
+ <button className={`game-card miniexcel-card ${student.age!=='5 años'?'locked':''}`} onClick={()=>student.age==='5 años'?startGame('miniexcel'):say('MiniExcel está disponible por ahora solo para 5 años.')}><div className="card-art miniexcel-art"><div className="mini-excel-icon">X<span>▦</span></div><div className="pixel-sample">🟥🟥🟥<br/>🟥⬛🟥<br/>🟦🟨🟦</div></div><div className="card-copy"><span className="tag green">30 NIVELES · SOLO 5 AÑOS</span><h2>MiniExcel</h2><p>Aprende filas, columnas y celdas coloreando dibujos como en una hoja de Excel.</p><div className="card-bottom">¡Pinta por coordenadas! <b>➜</b></div></div></button>
+ </div><button className="ghost" onClick={()=>setView('home')}>← Volver al inicio</button></main>}
+ {view==='play'&&game==='miniexcel'&&<main className="layout play-view miniexcel-play-view"><div className="play-top"><div className="mini-level-navigation"><button className="ghost" onClick={()=>setView('games')}>← Juegos</button>{game==='miniexcel'&&level>1&&<button className="ghost mini-previous-level" onClick={()=>{setLevel(n=>Math.max(1,n-1));resetLevel();say('Volvemos al nivel anterior.')}} aria-label="Retroceder al nivel anterior">← Nivel anterior</button>}</div><div><span className="tag green">NIVEL {level} DE 30</span><h1>{title}</h1></div><div className="progress-wrap"><div className="progress-label">Progreso del nivel <b>{level}/30</b></div><div className="progress-bar"><span style={{width:`${(level-1)/30*100}%`}}/></div></div></div><div className="play-instruction">Aprende a usar una hoja de cálculo: filas, columnas, celdas y colores.</div><MiniExcel key={level} level={level} studentName={name} onExit={()=>setView('games')} onContinue={()=>{if(level>=30){setView('finished');try{localStorage.removeItem(ACTIVE_SESSION_KEY)}catch{}}else{setLevel(n=>n+1);resetLevel();say('¡Muy bien! Aquí viene el siguiente reto.')}}} onLevelComplete={(pct,metrics)=>passLevel(pct,metrics)}/><div className="play-bottom"><p className="feedback">{feedback}</p><small>MiniExcel está diseñado por ahora para niños de 5 años. El progreso se guarda al completar cada nivel.</small></div></main>}
+ {view==='play'&&game!=='miniexcel'&&<main className="layout play-view"><div className="play-top"><button className="ghost" onClick={()=>setView('games')}>← Juegos</button><div><span className="tag blue">NIVEL {level} DE 30</span><h1>{title}</h1></div><div className="progress-wrap"><div className="progress-label">Progreso del nivel <b>{isTrace?tracePct:Math.min(100,collected*12)}%</b></div><div className="progress-bar"><span style={{width:`${isTrace?tracePct:Math.min(100,collected*12)}%`}}/></div></div></div><div className="play-instruction">{game==='keyboard'?`Usa las flechas para llevar al conejito a la meta. Nivel ${level}: ${title}.` : isTrace?`Sigue el contorno de ${shape.name.toLowerCase()}. Puedes soltar y continuar; comprueba al terminar.` : isDrag?dragMission.prompt:'Haz clic en tres objetos para completar la misión.'}</div>
  {game==='keyboard'&&<div className="keyboard-stage"><div className="grid-board" style={{'--grid-size':gridSize}}>{Array.from({length:gridSize*gridSize},(_,i)=>{const r=Math.floor(i/gridSize),c=i%gridSize,isPlayer=pos[0]===r&&pos[1]===c,isGoal=r===target[0]&&c===target[1],isBomb=bombs.has(`${r},${c}`),isTree=trees.has(`${r},${c}`);return <div className={`grid-cell ${isPlayer?'player-cell':''} ${isGoal?'goal-cell':''} ${isBomb?'bomb-cell':''} ${isTree?'tree-cell':''}`} key={i}>{isPlayer?'🐰':isGoal?mission[1]:isBomb?'💣':isTree?'🌳':''}</div>})}</div><aside className="maze-side"><div className="goal-display"><span>VE HASTA AQUÍ</span><strong>{mission[1]}</strong><b>{mission[0]}</b></div><p className="maze-progress">Movimientos: {collected}<br/>Evita las bombas.</p><div className="arrow-pad"><button onClick={()=>move('ArrowUp')}>↑</button><div><button onClick={()=>move('ArrowLeft')}>←</button><button onClick={()=>move('ArrowDown')}>↓</button><button onClick={()=>move('ArrowRight')}>→</button></div><small>Usa las flechas del teclado.</small></div></aside><p className="feedback maze-feedback">{feedback}</p></div>}
  {game==='mouse'&&isTrace&&<div className="trace-stage"><div className="trace-side"><span className="big-emoji">{shape.emoji}</span><h2>{shape.name}</h2><p>Repasa el contorno completo.</p><div className="mini-progress"><span style={{width:tracePct+'%'}}/></div><strong>{tracePct}% completado</strong><p className="hint">Puedes dibujar en varios intentos antes de comprobar. Si no llegas al 80 %, sigue practicando.</p></div><svg ref={traceRef} className="trace-canvas" viewBox="0 0 300 260" onPointerDown={pointerDown} onPointerMove={pointerMove} onPointerUp={pointerUp} onPointerCancel={()=>{setDrawing(false);tracePointsRef.current=[];setTracePoints([])}}><path d={shape.path} className="guide-path"/>{traceStrokes.map((stroke,i)=><polyline key={i} points={stroke.map(p=>`${p.x},${p.y}`).join(' ')} className="user-line"/>)}<circle cx={shapeStart.x} cy={shapeStart.y} r="7" className="start-dot"/><text x={shapeStart.x} y={Math.max(12,shapeStart.y-15)} textAnchor="middle" className="svg-label">EMPIEZA AQUÍ</text></svg><div className="trace-actions"><button className="ghost erase-button" onClick={eraseTrace}>⌫ Borrar y empezar de nuevo</button><button className="primary" onClick={finishTrace}>¡Terminé! Comprobar dibujo</button></div></div>}
  {game==='mouse'&&!isTrace&&!isDrag&&<div className="simple-mouse-stage click-game-stage"><h2>{title}</h2><p>{clickMission.prompt}</p><div className="target-to-find" aria-label={`Busca ${clickMission.targetName}`}><span>BUSCA ESTE DIBUJO</span><strong>{clickMission.target}</strong><b>{clickMission.targetName}</b></div><div className="click-targets">{clickMission.items.map((v,i)=><button key={i} className={`${clicked.includes(i)?'selected-target':''} ${!clickMission.correct.includes(i)?'distractor-target':''}`} onClick={()=>clickObject(i)} aria-label={`Objeto ${i+1}`}>{v}</button>)}</div><div className="click-counter" aria-live="polite"><span>OBJETOS ENCONTRADOS</span><strong>{clicked.length}<i>/{clickGoal}</i></strong><small>{clicked.length>=clickGoal?'¡Reto completado!':`Encuentra ${clickGoal-clicked.length} más`}</small></div></div>}
@@ -501,7 +519,7 @@ function exportExcel(){
  <div className="play-bottom"><p className="feedback">{feedback}</p><div className="play-buttons"><button className="ghost" onClick={()=>{resetLevel();say('Puedes volver a intentarlo.')}}>Reintentar nivel</button>{game==='keyboard'&&<button className="primary" onClick={()=>{say('Lleva al conejito hasta el objeto objetivo.')}}>Ver indicación</button>}</div><small>El avance es automático cuando completas correctamente el reto. Para salir de la actividad, usa «Juegos».</small></div></main>}
  {view==='finished'&&<main className="layout finished-view panel"><div className="celebration">🏆 🌟 🎉</div><h1>¡Lo lograste, {student.first}!</h1><p>Has completado los 30 niveles de esta aventura.</p><button className="primary big" onClick={()=>setView('games')}>Volver a los juegos</button></main>}
  {view==='login'&&<main className="layout teacher-login panel"><div className="form-icon">🔐</div><h1>Panel docente</h1><p>Ingresa con el usuario docente creado en Supabase Authentication.</p><form onSubmit={teacherLogin}><label>Correo del docente<input type="email" autoComplete="username" value={teacherEmail} onChange={e=>setTeacherEmail(e.target.value)} required placeholder="docente@colegio.edu.pe"/></label><label>Contraseña<input type="password" autoComplete="current-password" value={pass} onChange={e=>setPass(e.target.value)} required/></label><button className="primary big">Ingresar</button></form>{!supabaseConfigured&&<p className="error">Supabase todavía no está configurado. Completa el archivo .env y reinicia Vite.</p>}{error&&<p className="error">{error}</p>}<button className="ghost" onClick={()=>setView('home')}>Volver</button></main>}
- {view==='teacher'&&<main className="layout teacher-view"><div className="section-heading"><div><div className="eyebrow">PANEL PRIVADO · DOCENTE</div><h1>Reporte de progreso</h1><p>Docente: {TEACHER}</p></div><div className="teacher-actions"><button className="primary" onClick={exportExcel}>Exportar Excel (.xlsx) ↓</button><button className="ghost" onClick={teacherLogout}>Cerrar sesión</button></div></div>{dbMessage&&<p className="report-note">{dbMessage}</p>}<section className="date-filter panel"><h2>Consultar por fecha</h2><div className="date-filter-controls"><label>Vista<select value={dateMode} onChange={e=>setDateMode(e.target.value)}><option value="range">Rango de fechas</option><option value="day">Un día específico</option><option value="all">Todos los registros</option></select></label>{dateMode==='range'&&<><label>Desde<input type="date" value={dateFrom} onChange={e=>setDateFrom(e.target.value)} /></label><label>Hasta<input type="date" value={dateTo} onChange={e=>setDateTo(e.target.value)} /></label></>}{dateMode==='day'&&<label>Fecha<input type="date" value={singleDate} onChange={e=>setSingleDate(e.target.value)} /></label>}<button className="ghost" onClick={()=>setDateMode('all')}>Mostrar todos</button></div>{dateMode==='range'&&dateFrom&&dateTo&&dateFrom>dateTo&&<p className="error">La fecha inicial no puede ser posterior a la fecha final.</p>}</section><div className="summary-cards"><div className="summary"><span>Estudiantes registrados</span><b>{reports.length}</b></div><div className="summary"><span>Resultados de niveles guardados</span><b>{filteredRecords.length}</b></div><div className="summary"><span>Juegos</span><b>2 × 30</b></div></div>{(dateMode==='range'&&dateFrom>dateTo)||reports.length===0?<div className="empty panel"><div>📊</div><h2>{dateMode==='range'&&dateFrom>dateTo?'Revisa el rango de fechas':'No hay resultados en este periodo'}</h2><p>{dateMode==='range'&&dateFrom>dateTo?'La fecha inicial debe ser anterior o igual a la fecha final.':'Prueba otro día o rango de fechas. Los resultados deben tener una fecha guardada en Supabase.'}</p></div>:<div className="table-wrap"><table><thead><tr><th>Estudiante</th><th>Edad</th><th>Niveles registrados</th><th>Avance por juego</th><th>Desempeño observado</th><th>Evaluación por capacidad</th></tr></thead><tbody>{reports.map(r=><tr key={r.key}><td><strong>{r.name}</strong></td><td>{r.age}</td><td>{r.records}</td><td><div className="grade-list"><div><span>Teclado</span><b>{r.keyboardCount}/30 · {r.keyboardProgress}%</b></div><div><span>Mouse</span><b>{r.mouseCount}/30 · {r.mouseProgress}%</b></div></div></td><td>{typeof r.overall!=='number'?'Sin evidencia':`${r.overall}/100 (niveles completados)`}</td><td><div className="grade-list">{r.grades.map(g=><div key={g.name}><span>{g.name}</span><b>{g.percent===null?g.grade:`${g.percent}% · ${g.grade}`}</b></div>)}</div></td></tr>)}</tbody></table></div>}<div className="report-note">El avance indica niveles completados de 30 por juego y no equivale a una nota final. Personaliza usa provisionalmente la precisión de dibujo como evidencia inicial; para evaluarla con rigor se deberá registrar la selección de colores, figuras o herramientas. Gestiona usa búsqueda/clic y asociación/arrastre; Interactúa usa teclado; Crea usa dibujo. “En proceso” indica que aún falta completar el conjunto de actividades de esa capacidad. Los intentos fallidos no se guardan como registros independientes en esta versión.</div></main>}
+ {view==='teacher'&&<main className="layout teacher-view"><div className="section-heading"><div><div className="eyebrow">PANEL PRIVADO · DOCENTE</div><h1>Reporte de progreso</h1><p>Docente: {TEACHER}</p></div><div className="teacher-actions"><button className="primary" onClick={exportExcel}>Exportar Excel (.xlsx) ↓</button><button className="ghost" onClick={teacherLogout}>Cerrar sesión</button></div></div>{dbMessage&&<p className="report-note">{dbMessage}</p>}<section className="date-filter panel"><h2>Consultar por fecha</h2><div className="date-filter-controls"><label>Informe<select value={reportGame} onChange={e=>setReportGame(e.target.value)}><option value="all">Todos los juegos</option><option value="keyboard">Aventuras con Flechitas</option><option value="mouse">Mouse Mágico</option><option value="miniexcel">MiniExcel (solo 5 años)</option></select></label><label>Periodo<select value={dateMode} onChange={e=>setDateMode(e.target.value)}><option value="range">Rango de fechas</option><option value="day">Un día específico</option><option value="all">Todos los registros</option></select></label>{dateMode==='range'&&<><label>Desde<input type="date" value={dateFrom} onChange={e=>setDateFrom(e.target.value)} /></label><label>Hasta<input type="date" value={dateTo} onChange={e=>setDateTo(e.target.value)} /></label></>}{dateMode==='day'&&<label>Fecha<input type="date" value={singleDate} onChange={e=>setSingleDate(e.target.value)} /></label>}<button className="ghost" onClick={()=>setDateMode('all')}>Mostrar todos</button></div>{dateMode==='range'&&dateFrom&&dateTo&&dateFrom>dateTo&&<p className="error">La fecha inicial no puede ser posterior a la fecha final.</p>}</section><div className="summary-cards"><div className="summary"><span>Estudiantes registrados</span><b>{reports.length}</b></div><div className="summary"><span>Resultados del informe seleccionado</span><b>{reportRecords.length}</b></div><div className="summary"><span>Informe activo</span><b>{reportGame==='miniexcel'?'MiniExcel':reportGame==='keyboard'?'Flechitas':reportGame==='mouse'?'Mouse Mágico':'Todos'}</b></div></div>{(dateMode==='range'&&dateFrom>dateTo)||reports.length===0?<div className="empty panel"><div>📊</div><h2>{dateMode==='range'&&dateFrom>dateTo?'Revisa el rango de fechas':'No hay resultados en este periodo'}</h2><p>{dateMode==='range'&&dateFrom>dateTo?'La fecha inicial debe ser anterior o igual a la fecha final.':'Prueba otro día o rango de fechas. Los resultados deben tener una fecha guardada en Supabase.'}</p></div>:<div className="table-wrap"><table><thead><tr><th>Estudiante</th><th>Edad</th><th>Niveles registrados</th><th>Desempeño promedio</th><th>Notas por capacidad</th></tr></thead><tbody>{reports.map(r=><tr key={r.key}><td><strong>{r.name}</strong></td><td>{r.age}</td><td>{r.records}</td><td>{r.overall===null?'S/D':`${r.overall}/100`}</td><td><div className="grade-list">{r.grades.map(g=><div key={g.name}><span>{g.name}</span><b>{g.percent===null?'Sin datos':`${g.percent}% · ${g.grade}`}</b></div>)}</div></td></tr>)}</tbody></table></div>}<div className="report-note">La nota por nivel usa una rúbrica inicial: logro 60 %, precisión 25 % y autonomía registrada 15 %. El tiempo se informa, pero no penaliza. Las capacidades sin métricas aparecen como S/D; deben implementarse actividades específicas antes de calificarlas.</div></main>}
  <footer><span>PequeMundo Digital</span><span>Docente: {TEACHER}</span><span>Aprender jugando ✦</span></footer>
  </div>
 }

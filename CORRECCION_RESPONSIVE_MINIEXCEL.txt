@@ -1,0 +1,15 @@
+CORRECCIÓN RESPONSIVE DE MINIEXCEL
+
+Esta versión corrige la distribución de la pantalla de los niveles 21–30:
+- En pantallas anchas, el modelo aparece a la izquierda y el tablero a la derecha.
+- En pantallas medianas o estrechas (900 px o menos), el modelo aparece arriba y el tablero debajo, sin recorte horizontal.
+- El tablero se ajusta al ancho disponible.
+
+Para probar:
+1. Descomprime en una carpeta nueva.
+2. Copia tu .env si tu proyecto lo necesita (no se incluye por seguridad).
+3. En terminal: npm install
+4. Luego: npm run build
+5. Luego: npm run dev
+
+Se excluyeron .git y node_modules del ZIP para reducir tamaño. No se han cambiado credenciales ni lógica de los juegos.

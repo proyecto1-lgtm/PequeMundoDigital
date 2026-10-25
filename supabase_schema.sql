@@ -5,7 +5,7 @@ create table if not exists public.pmd_results (
   student_first_name text not null,
   student_last_name text not null,
   age text not null check (age in ('3 años','4 años','5 años')),
-  game text not null check (game in ('keyboard','mouse')),
+  game text not null check (game in ('keyboard','mouse','miniexcel')),
   level integer not null check (level between 1 and 30),
   score_percent integer not null check (score_percent between 0 and 100),
   passed boolean not null default false,

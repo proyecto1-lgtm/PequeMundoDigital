@@ -1,0 +1,17 @@
+CORRECCIÓN DE MINIEXCEL — NIVELES 21–30
+
+La vista previa y el tablero se generan desde la misma matriz JSON:
+src/miniexcel-pixelart-niveles-21-30.json
+
+No edites una plantilla distinta para cambiar el dibujo. Para modificar un nivel,
+edita su matriz rows (12 filas de 12 colores) en ese JSON.
+
+Prueba local:
+1. Abre esta carpeta en Visual Studio Code.
+2. Conserva tu archivo .env con las credenciales que ya usas.
+3. Ejecuta: npm install
+4. Ejecuta: npm run build
+5. Ejecuta: npm run dev
+
+Si estabas viendo una versión antigua en el navegador, detén el servidor,
+vuelve a iniciarlo y recarga la página con Ctrl+F5.

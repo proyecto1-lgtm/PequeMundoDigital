@@ -44,3 +44,15 @@ Los resultados se guardan únicamente en el navegador actual. Aún no se sincron
 8. Completa un nivel de prueba. El resultado debe aparecer en `public.pmd_results` y luego en el panel docente.
 
 La clave pública `anon` puede usarse en el frontend porque las tablas están protegidas por RLS. No publiques una clave `service_role`. La política permite insertar resultados sin iniciar sesión para que los estudiantes jueguen desde casa, pero solo usuarios autenticados pueden leer los resultados. Para producción, restringe además la creación de usuarios y protege el acceso al panel docente.
+
+## MiniExcel (nuevo módulo para 5 años)
+
+Se añadió MiniExcel como tercer juego con apariencia de hoja de cálculo: encabezados de columnas A–J, filas 1–10, cuadrícula de celdas, paleta de colores, cuadro de misión y botón para comprobar. Incluye 30 niveles progresivos: coordenadas simples, mosaicos y dibujos pixelados. Los resultados se guardan mediante el mismo flujo de Supabase que los otros juegos.
+
+### Actualizar Supabase para aceptar MiniExcel
+
+Si ya tienes creada la tabla `pmd_results`, abre **Supabase → SQL Editor**, copia el contenido de `supabase_migration_miniexcel.sql` y ejecútalo una sola vez. La migración únicamente amplía los valores permitidos en `game`; no borra resultados anteriores.
+
+Si vas a crear una base nueva, `supabase_schema.sql` ya permite `keyboard`, `mouse` y `miniexcel`.
+
+MiniExcel se habilita en la aplicación solo cuando la edad elegida es `5 años`. Antes de publicar, ejecuta `npm install` y `npm run build` en tu entorno local y prueba un nivel guardado en Supabase.

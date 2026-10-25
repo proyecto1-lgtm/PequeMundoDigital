@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Editor de dibujos MiniExcel</title>
+<style>
+:root{font-family:Arial,Helvetica,sans-serif;color:#17324d;background:#f2f7ff}
+*{box-sizing:border-box}body{margin:0;padding:18px}
+main{max-width:1200px;margin:auto}
+h1{font-size:clamp(22px,3vw,32px);margin:0 0 6px}
+p{margin:6px 0 14px;line-height:1.4}
+.layout{display:grid;grid-template-columns:minmax(270px,340px) minmax(0,1fr);gap:16px;align-items:start}
+.panel{background:white;border:1px solid #c9d9ed;border-radius:14px;padding:14px;box-shadow:0 3px 12px #17324d0b}
+label{display:block;font-weight:700;margin:10px 0 5px}
+select,input[type=text]{width:100%;padding:10px;border:1px solid #b9c9d9;border-radius:8px;font-size:16px;background:#fff}
+.palette{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0}
+.swatch{width:38px;height:38px;border:3px solid #d6e0e8;border-radius:9px;cursor:pointer;position:relative}
+.swatch.selected{outline:3px solid #16834a;outline-offset:2px}
+.swatch.selected:after{content:"✓";position:absolute;inset:0;display:grid;place-items:center;font-weight:bold;color:white;text-shadow:0 1px 3px #333}
+button{border:0;border-radius:9px;padding:10px 13px;font-size:15px;font-weight:700;cursor:pointer;background:#e9f1f8;color:#17324d}
+button.primary{background:#197447;color:white}button.danger{background:#fff0ef;color:#9d2525}
+.actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.gridwrap{overflow:auto}
+table{border-collapse:collapse;margin:auto;table-layout:fixed}
+th,td{padding:0;text-align:center;border:1px solid #c5d2cc}
+th{background:#e6eee9;font-size:13px;height:28px;min-width:30px}
+td.cell{width:clamp(25px,4vw,43px);height:clamp(25px,4vw,43px);cursor:pointer}
+td.cell:hover{outline:2px solid #317bb4;outline-offset:-2px}
+td.rowhead{width:30px;background:#e6eee9;font-weight:bold}
+.note{font-size:13px;color:#5e7183}
+textarea{width:100%;min-height:150px;font:12px ui-monospace,monospace;border:1px solid #b9c9d9;border-radius:8px;padding:10px;white-space:pre}
+.status{margin-top:10px;background:#edf8f0;border-radius:8px;padding:10px;font-size:14px}
+@media(max-width:760px){body{padding:10px}.layout{grid-template-columns:1fr}.panel{padding:11px}td.cell{width:27px;height:27px}th{min-width:27px}}
+</style>
+</head>
+<body>
+<main>
+<h1>Editor de dibujos pixelados para MiniExcel</h1>
+<p>Diseña el modelo exacto pintando los cuadritos. Este editor no cambia tu proyecto todavía: genera una matriz JSON para integrar después. El modelo y el tablero del juego deben salir de esa misma matriz.</p>
+<div class="layout">
+<section class="panel">
+<label for="level">Nivel</label>
+<select id="level">
+<option value="21">21 — Corazón rosado</option><option value="22">22 — Capibara</option>
+<option value="23">23 — Abejita</option><option value="24">24 — Fantasmita con flor</option>
+<option value="25">25 — Carita enamorada</option><option value="26">26 — Flor roja</option>
+<option value="27">27 — Pou</option><option value="28">28 — Dos caracoles</option>
+<option value="29">29 — Pac-Man</option><option value="30">30 — Cara de vaca</option>
+</select>
+<label for="name">Nombre del dibujo</label><input id="name" type="text" value="Corazón rosado">
+<label>Color para pintar</label><div class="palette" id="palette"></div>
+<div class="actions">
+<button id="fill">Rellenar todo de blanco</button><button id="clear" class="danger">Borrar dibujo</button>
+</div>
+<div class="actions">
+<button id="undo">Deshacer</button><button id="save" class="primary">Guardar nivel en este navegador</button>
+</div>
+<p class="note">Cuadrícula de 12 × 12. Haz clic en las celdas para pintar. El color blanco significa “dejar en blanco”, no se cuenta como objetivo de color.</p>
+<div class="status" id="status">Celdas coloreadas: 0</div>
+</section>
+<section class="panel">
+<div class="gridwrap"><table id="grid" aria-label="Cuadrícula pixel art"></table></div>
+<div class="actions">
+<button class="primary" id="export">Exportar JSON de todos los niveles</button>
+<button id="copy">Copiar JSON</button>
+</div>
+<label for="output">JSON generado</label>
+<textarea id="output" readonly></textarea>
+<p class="note">Cuando los dibujos estén listos, comparte el JSON generado o el archivo descargado junto con el ZIP actual de PequeMundo Digital. Así se puede integrar sin reconstruir los patrones a mano.</p>
+</section>
+</div>
+</main>
+<script>
+const colors=[
+ {name:"Blanco",value:"#ffffff"},{name:"Negro",value:"#202124"},{name:"Rojo",value:"#f12f3b"},
+ {name:"Rosa",value:"#ff7f8a"},{name:"Amarillo",value:"#ffdf32"},{name:"Azul",value:"#168be8"},
+ {name:"Celeste",value:"#47b9e8"},{name:"Verde",value:"#16964f"},{name:"Marrón",value:"#8b4a20"},
+ {name:"Naranja",value:"#f39a2f"},{name:"Gris",value:"#a9b3bd"}
+];
+const names={"21":"Corazón rosado","22":"Capibara","23":"Abejita","24":"Fantasmita con flor","25":"Carita enamorada","26":"Flor roja","27":"Pou","28":"Dos caracoles","29":"Pac-Man","30":"Cara de vaca"};
+let currentColor=colors[3].value, patterns={}, history=[];
+const level=document.getElementById('level'), nameInput=document.getElementById('name'), grid=document.getElementById('grid'), palette=document.getElementById('palette'), output=document.getElementById('output'), status=document.getElementById('status');
+function blank(){return Array.from({length:12},()=>Array(12).fill("#ffffff"))}
+function getPattern(){if(!patterns[level.value])patterns[level.value]=blank();return patterns[level.value]}
+function snapshot(){history.push(JSON.stringify(getPattern()));if(history.length>80)history.shift()}
+function renderPalette(){palette.innerHTML='';colors.forEach(c=>{let b=document.createElement('button');b.className='swatch'+(currentColor===c.value?' selected':'');b.style.background=c.value;b.title=c.name;b.setAttribute('aria-label',c.name);b.onclick=()=>{currentColor=c.value;renderPalette()};palette.appendChild(b)})}
+function renderGrid(){let p=getPattern();grid.innerHTML='';let thead=document.createElement('thead'),hr=document.createElement('tr');let blankth=document.createElement('th');blankth.textContent='';hr.appendChild(blankth);for(let c=0;c<12;c++){let th=document.createElement('th');th.textContent=String.fromCharCode(65+c);hr.appendChild(th)}thead.appendChild(hr);grid.appendChild(thead);let tbody=document.createElement('tbody');for(let r=0;r<12;r++){let tr=document.createElement('tr'),rh=document.createElement('td');rh.className='rowhead';rh.textContent=r+1;tr.appendChild(rh);for(let c=0;c<12;c++){let td=document.createElement('td');td.className='cell';td.style.background=p[r][c];td.title=String.fromCharCode(65+c)+(r+1);td.onclick=()=>{snapshot();p[r][c]=currentColor;renderGrid()};tr.appendChild(td)}tbody.appendChild(tr)}grid.appendChild(tbody);let count=p.flat().filter(x=>x!=="#ffffff").length;status.textContent='Celdas coloreadas: '+count+' · Nivel '+level.value;nameInput.value=names[level.value]||'Dibujo'}
+function exportJson(){let out={version:1,gridSize:12,levels:{}};for(let n=21;n<=30;n++){let p=patterns[n]||blank();out.levels[n]={name:names[n]||'',rows:p.map(row=>row.map(v=>v.toUpperCase()))}}output.value=JSON.stringify(out,null,2);return output.value}
+function saveLocal(){names[level.value]=nameInput.value;patterns[level.value]=getPattern();localStorage.setItem('miniexcel-pixel-editor-v1',JSON.stringify({patterns,names}));status.textContent='Nivel '+level.value+' guardado en este navegador.';exportJson()}
+palette.innerHTML='';renderPalette();level.onchange=()=>{history=[];renderGrid()};document.getElementById('clear').onclick=()=>{snapshot();patterns[level.value]=blank();renderGrid()};document.getElementById('fill').onclick=()=>{snapshot();patterns[level.value]=blank();renderGrid()};document.getElementById('undo').onclick=()=>{if(history.length){patterns[level.value]=JSON.parse(history.pop());renderGrid()}};document.getElementById('save').onclick=saveLocal;document.getElementById('export').onclick=()=>{let data=exportJson(),blob=new Blob([data],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='miniexcel-pixelart-niveles-21-30.json';a.click();URL.revokeObjectURL(a.href)};document.getElementById('copy').onclick=async()=>{output.value=exportJson();try{await navigator.clipboard.writeText(output.value);status.textContent='JSON copiado.'}catch(e){output.select();status.textContent='Selecciona el JSON y cópialo manualmente.'}};
+try{let saved=JSON.parse(localStorage.getItem('miniexcel-pixel-editor-v1')||'null');if(saved){patterns=saved.patterns||{};Object.assign(names,saved.names||{})}}catch(e){}renderGrid();exportJson();
+</script>
+</body></html>

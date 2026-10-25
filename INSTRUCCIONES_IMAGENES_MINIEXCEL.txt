@@ -1,0 +1,17 @@
+MINIEXCEL: CARGA DE MODELOS PNG
+
+Copia tus archivos PNG a:
+src/imagenes/
+
+Nombres esperados:
+21.png, 22.png, 23.png, 24.png, 25.png, 26.png, 27.png, 28.png, 29.png, 30.png
+
+Vite los incluirá automáticamente al compilar. El PNG se usa como referencia visual
+del panel izquierdo. La matriz JSON continúa siendo la fuente de verdad para las
+celdas del tablero y la evaluación; por eso los PNG deben representar el mismo dibujo
+y las mismas coordenadas que el JSON.
+
+Luego ejecuta:
+npm install
+npm run build
+npm run dev
