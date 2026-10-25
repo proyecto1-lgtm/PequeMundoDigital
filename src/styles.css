@@ -595,3 +595,114 @@ body.playing {
     height: clamp(42px, 6vh, 65px);
   }
 }
+
+
+/* Diseño para inicial: modelo a la izquierda y objetos grandes a la derecha */
+.playing .click-game-stage {
+  display: grid !important;
+  grid-template-columns: minmax(220px, 0.8fr) minmax(420px, 1.5fr);
+  grid-template-areas:
+    "heading heading"
+    "instruction instruction"
+    "model choices"
+    "model counter";
+  align-content: center;
+  align-items: center;
+  justify-items: stretch;
+  column-gap: clamp(22px, 4vw, 64px) !important;
+  row-gap: clamp(8px, 1.5vh, 16px) !important;
+  padding: clamp(12px, 2.2vh, 24px) clamp(18px, 4vw, 64px) !important;
+  overflow: hidden;
+}
+.playing .click-game-stage > h2 {
+  grid-area: heading;
+  text-align: center;
+  margin: 0;
+  font-size: clamp(22px, 2.2vw, 34px);
+}
+.playing .click-game-stage > p {
+  grid-area: instruction;
+  text-align: center;
+  margin: 0 0 3px;
+  font-size: clamp(14px, 1.25vw, 19px);
+}
+.playing .click-game-stage .target-to-find {
+  grid-area: model;
+  justify-self: stretch;
+  align-self: center;
+  min-width: 0;
+  min-height: clamp(180px, 34vh, 300px);
+  padding: clamp(12px, 2vh, 24px);
+  gap: 8px;
+}
+.playing .click-game-stage .target-to-find span {
+  font-size: clamp(12px, 1.1vw, 16px);
+}
+.playing .click-game-stage .target-to-find strong {
+  font-size: clamp(64px, 10vh, 112px);
+  line-height: 1.05;
+}
+.playing .click-game-stage .target-to-find b {
+  font-size: clamp(16px, 1.5vw, 22px);
+}
+.playing .click-game-stage .click-targets {
+  grid-area: choices;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(78px, 1fr));
+  gap: clamp(10px, 1.6vw, 22px);
+  justify-items: stretch;
+  align-items: stretch;
+  margin: 0;
+  width: 100%;
+}
+.playing .click-game-stage .click-targets button {
+  width: 100%;
+  height: clamp(78px, 13vh, 130px);
+  font-size: clamp(42px, 6vh, 64px);
+  border-radius: 20px;
+}
+.playing .click-game-stage .click-counter {
+  grid-area: counter;
+  justify-self: center;
+  padding: 5px 20px;
+  min-width: 190px;
+}
+.playing .click-game-stage .click-counter strong {
+  font-size: clamp(34px, 5vh, 54px);
+}
+@media (max-width: 760px) {
+  .playing .click-game-stage {
+    grid-template-columns: minmax(110px, .7fr) minmax(0, 1.3fr);
+    column-gap: 12px !important;
+    padding: 8px !important;
+  }
+  .playing .click-game-stage .target-to-find {
+    min-height: 150px;
+    padding: 8px;
+  }
+  .playing .click-game-stage .click-targets {
+    grid-template-columns: repeat(2, minmax(58px, 1fr));
+    gap: 8px;
+  }
+  .playing .click-game-stage .click-targets button {
+    height: clamp(54px, 10vh, 80px);
+    font-size: clamp(30px, 5vh, 44px);
+  }
+}
+@media (max-height: 650px) {
+  .playing .click-game-stage {
+    row-gap: 5px !important;
+    padding-top: 5px !important;
+    padding-bottom: 5px !important;
+  }
+  .playing .click-game-stage .target-to-find {
+    min-height: 125px;
+    gap: 2px;
+  }
+  .playing .click-game-stage .target-to-find strong {
+    font-size: clamp(48px, 8vh, 72px);
+  }
+  .playing .click-game-stage .click-targets button {
+    height: clamp(48px, 9vh, 70px);
+  }
+}
