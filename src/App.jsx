@@ -140,13 +140,28 @@ function App(){
    if(selected.length>=dragPairCount)break;
    if(!selected.some(p=>p.id===pair.id && p.object===pair.object && p.target===pair.target))selected.push(pair);
   }
-  // La selección cambia por nivel y edad; luego cada columna se mezcla por separado.
-  const seed=level*97+ageYears*53;
-  const order=(arr,salt)=>[...arr].sort((a,b)=>{
-   const score=x=>{let n=0;const str=`${x.id}${x.object}${x.target}${seed+salt}`;for(let i=0;i<str.length;i++)n=(n*31+str.charCodeAt(i))>>>0;return n;};
-   return score(a)-score(b);
-  });
-  return {pairs:selected,objects:order(selected,11),targets:order(selected,29)};
+  // Mezcla Fisher-Yates con semillas diferentes para que cada columna tenga
+  // un orden independiente y no se pueda resolver por correspondencia visual.
+  const shuffle=(items,salt)=>{
+   const result=[...items];
+   let seed=(level*9301+ageYears*49297+salt*233+result.length*719)>>>0;
+   const random=()=>{
+    seed=(seed*1664525+1013904223)>>>0;
+    return seed/4294967296;
+   };
+   for(let i=result.length-1;i>0;i--){
+    const j=Math.floor(random()*(i+1));
+    [result[i],result[j]]=[result[j],result[i]];
+   }
+   return result;
+  };
+  const objects=shuffle(selected,11);
+  let targets=shuffle(selected,97);
+  // Si por casualidad coinciden, vuelve a mezclar destinos con otra semilla.
+  if(targets.every((item,index)=>item.id===objects[index]?.id)){
+   targets=shuffle(selected,193);
+  }
+  return {pairs:selected,objects,targets};
  },[dragMission,dragPairCount,level,ageYears]);
  const mission=KEY_MISSIONS[(level-1)%10];
  const gridSize=useMemo(()=>{
