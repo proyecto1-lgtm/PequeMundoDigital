@@ -131,23 +131,40 @@ function App(){
   return progression[Math.min(5,Math.floor((level-1)/5))];
  },[ageYears,level]);
  const target=[gridSize-1,gridSize-1];
- // El recorrido seguro en forma de L (fila superior y columna derecha) siempre queda libre.
- // Los árboles y bombas solo aparecen fuera de ese recorrido, así la meta siempre es alcanzable.
+ // Genera un camino seguro diferente por nivel y edad. El recorrido puede cruzar
+ // el centro del tablero; ya no se reserva siempre la fila superior y la columna derecha.
  const maze=useMemo(()=>{
-  const trees=new Set(),bombs=new Set();
-  const safe=(r,c)=>r===0||c===gridSize-1;
-  const candidates=[];
-  for(let r=1;r<gridSize;r++)for(let c=0;c<gridSize-1;c++)candidates.push([r,c]);
+  const trees=new Set(),bombs=new Set(),safePath=new Set();
   const seed=level*17+ageYears*31;
+  let r=0,c=0,step=0;
+  safePath.add(`${r},${c}`);
+  // Camino monotónico aleatorio: cada paso avanza a la derecha o hacia abajo,
+  // por lo que siempre llega a la casa sin retroceder ni salir del tablero.
+  while(r<gridSize-1||c<gridSize-1){
+   const canRight=c<gridSize-1,canDown=r<gridSize-1;
+   let goRight;
+   if(!canDown) goRight=true;
+   else if(!canRight) goRight=false;
+   else {
+    const mix=(seed*9301+(step+1)*49297+(r+3)*233+(c+5)*719)%997;
+    goRight=(mix%100)<(30+((level+ageYears+step)%41));
+   }
+   if(goRight)c++; else r++;
+   safePath.add(`${r},${c}`);
+   step++;
+  }
+  const candidates=[];
+  for(let rr=0;rr<gridSize;rr++)for(let cc=0;cc<gridSize;cc++){
+   if(!safePath.has(`${rr},${cc}`)&&!(rr===0&&cc===0)&&!(rr===gridSize-1&&cc===gridSize-1))candidates.push([rr,cc]);
+  }
   candidates.sort((a,b)=>(((a[0]*13+a[1]*7+seed)%37)-((b[0]*13+b[1]*7+seed)%37)));
   const treeCount=Math.min(candidates.length,Math.max(0,Math.floor((level-1)/4)+(ageYears-3)));
   const bombCount=Math.min(candidates.length-treeCount,Math.max(0,Math.floor((level-3)/4)+(ageYears-3)));
-  candidates.forEach(([r,c],i)=>{
-   if(safe(r,c))return;
-   if(i<treeCount)trees.add(`${r},${c}`);
-   else if(i<treeCount+bombCount)bombs.add(`${r},${c}`);
+  candidates.forEach(([rr,cc],i)=>{
+   if(i<treeCount)trees.add(`${rr},${cc}`);
+   else if(i<treeCount+bombCount)bombs.add(`${rr},${cc}`);
   });
-  return {trees,bombs};
+  return {trees,bombs,safePath};
  },[level,gridSize,ageYears]);
  const trees=maze.trees,bombs=maze.bombs;
  const shapeStart=(()=>{const m=shape.path.match(/^M\s*([\d.-]+)[,\s]+([\d.-]+)/i);return m?{x:Number(m[1]),y:Number(m[2])}:{x:150,y:38}})();
