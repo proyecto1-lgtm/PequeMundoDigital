@@ -400,7 +400,7 @@ function App(){
  }
  const filteredRecords=useMemo(()=>records.filter(r=>{if(dateMode==='all')return true;const stamp=new Date(r.date);if(Number.isNaN(stamp.getTime()))return false;const day=`${stamp.getFullYear()}-${String(stamp.getMonth()+1).padStart(2,'0')}-${String(stamp.getDate()).padStart(2,'0')}`;if(dateMode==='day')return day===singleDate;return day>=dateFrom&&day<=dateTo}),[records,dateMode,dateFrom,dateTo,singleDate]);
   const reports=useMemo(()=>{
-   // Un informe por estudiante y edad; el avance no se confunde con la nota.
+   // Recalcula la evaluación con los registros que corresponden a la consulta actual.
    const groups=new Map();
    for(const record of filteredRecords){
     const normalizedName=String(record.name||'').trim().toLocaleLowerCase('es');
@@ -414,7 +414,7 @@ function App(){
    };
    const levelCount=items=>new Set(items.map(r=>r.level)).size;
    const scoreOf=r=>{
-    const score=r.metrics?.rubric?.finalScore;
+    const score=r.metrics?.rubric?.finalScore ?? r.metrics?.levelScore ?? r.percent;
     return typeof score==='number'&&Number.isFinite(score)?score:null;
    };
    return [...groups.entries()].map(([key,items])=>{
@@ -426,24 +426,13 @@ function App(){
     const keyboardCount=levelCount(keyboard), mouseCount=levelCount(mouse);
     const clickCount=levelCount(click), dragCount=levelCount(drag), drawingCount=levelCount(drawing);
     const performance=average(items,scoreOf);
-    // Capacidad 1: los niveles de dibujo son una evidencia inicial de uso de elementos visuales,
-    // no una medición completa de personalización. Capacidad 2: búsqueda/clic y asociación/arrastre.
-    const personalizeScore=average(drawing,r=>{
-     const v=r.metrics?.drawingAccuracy;
-     return typeof v==='number'?v:null;
-    });
-    const manageScore=average([...click,...drag],r=>{
-     const v=r.metrics?.clickAccuracy ?? r.metrics?.mouseAccuracy;
-     return typeof v==='number'?v:scoreOf(r);
-    });
+    // Cada capacidad se calcula con los resultados de sus actividades asociadas.
+    const personalizeScore=average(drawing,scoreOf);
+    const manageScore=average([...click,...drag],scoreOf);
     const interactScore=average(keyboard,scoreOf);
-    const createScore=average(drawing,r=>{
-     const v=r.metrics?.drawingAccuracy;
-     return typeof v==='number'?v:scoreOf(r);
-    });
+    const createScore=average(drawing,scoreOf);
     const values=[personalizeScore,manageScore,interactScore,createScore];
     const evidenceCounts=[drawingCount,clickCount+dragCount,keyboardCount,drawingCount];
-    const evidenceTargets=[10,20,30,10];
     return {
      key,name:items[0].name,age:items[items.length-1]?.age,records:items.length,
      keyboardCount,mouseCount,clickCount,dragCount,drawingCount,
@@ -451,13 +440,12 @@ function App(){
      overall:performance,
      grades:CAPS.map((capability,index)=>{
       const score=values[index];
-      const enoughData=evidenceCounts[index]>=evidenceTargets[index] && score!==null;
-      return {name:capability,percent:score,grade:score===null?'Sin evidencia':enoughData?grade(score):'En proceso',evidence:evidenceCounts[index],target:evidenceTargets[index]};
+      return {name:capability,percent:score,grade:score===null?'Sin evidencia':grade(score),evidence:evidenceCounts[index]};
      })
     };
    });
   },[filteredRecords]);
- function exportExcel(){
+function exportExcel(){
   // Exporta un resumen consolidado por estudiante, no una fila por cada nivel.
   const rows=[
    [
