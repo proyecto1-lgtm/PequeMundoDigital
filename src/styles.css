@@ -477,3 +477,121 @@ html:has(.teacher-shell), body:has(.teacher-shell), #root:has(.teacher-shell) {
     min-height: clamp(38px, 6.5vh, 54px);
   }
 }
+
+
+/* Corrección efectiva del espacio de juego: los selectores coinciden con la estructura real */
+body.playing, html:has(body.playing), #root:has(body.playing) {
+  min-height: 100%;
+}
+body.playing {
+  overflow: hidden;
+}
+.playing .play-view {
+  box-sizing: border-box;
+  height: calc(100dvh - 155px);
+  max-height: calc(100dvh - 155px);
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+  margin-bottom: 3px;
+  overflow: hidden;
+}
+.playing .play-top {
+  flex: 0 0 auto;
+  gap: 10px;
+}
+.playing .play-instruction {
+  flex: 0 0 auto;
+  margin: 4px 0;
+  padding: 6px 12px;
+  line-height: 1.2;
+}
+.playing .simple-mouse-stage {
+  flex: 1 1 0;
+  min-height: 0;
+  height: auto;
+  max-height: none;
+  overflow: hidden;
+  padding: clamp(5px, 1vh, 10px);
+  gap: clamp(4px, .8vh, 8px);
+  justify-content: space-evenly;
+}
+.playing .simple-mouse-stage h2 {
+  margin: 0;
+  line-height: 1.1;
+  font-size: clamp(18px, 2.1vw, 28px);
+}
+.playing .simple-mouse-stage > p {
+  margin: 0;
+  line-height: 1.15;
+  font-size: clamp(12px, 1.2vw, 16px);
+}
+.playing .click-game-stage .target-to-find {
+  padding: 4px 12px;
+  gap: 2px;
+}
+.playing .click-game-stage .target-to-find .target-emoji {
+  font-size: clamp(25px, 4vh, 42px);
+  line-height: 1;
+}
+.playing .click-game-stage .click-targets {
+  flex: 0 1 auto;
+  margin: 4px 0;
+  gap: clamp(6px, 1vw, 12px);
+}
+.playing .click-game-stage .click-targets button {
+  width: clamp(48px, 6.5vh, 78px);
+  height: clamp(48px, 6.5vh, 78px);
+  padding: 4px;
+  font-size: clamp(25px, 4vh, 40px);
+}
+.playing .click-game-stage .click-counter {
+  flex: 0 0 auto;
+  padding: 3px 14px;
+}
+.playing .click-game-stage .click-counter strong {
+  font-size: clamp(28px, 4.5vh, 48px);
+  line-height: 1;
+}
+.playing .play-bottom {
+  flex: 0 0 auto;
+  padding: 3px 0 4px !important;
+  margin: 0 !important;
+}
+.playing .play-bottom .feedback {
+  margin: 0 0 3px !important;
+  line-height: 1.1;
+  font-size: clamp(12px, 1.05vw, 15px);
+}
+.playing .play-bottom .play-buttons {
+  margin: 0 0 2px !important;
+  gap: 5px;
+}
+.playing .play-bottom .play-buttons button {
+  min-height: 28px;
+  padding: 4px 10px;
+  font-size: 12px;
+}
+.playing .play-bottom > small {
+  font-size: 8px;
+  line-height: 1.1;
+}
+@media (max-height: 760px) {
+  .playing .play-view {
+    height: calc(100dvh - 135px);
+    max-height: calc(100dvh - 135px);
+  }
+  .playing .play-instruction {
+    margin: 2px 0;
+    padding: 5px 10px;
+  }
+  .playing .play-bottom > small {
+    display: none;
+  }
+  .playing .click-game-stage .click-targets button {
+    width: clamp(42px, 6vh, 65px);
+    height: clamp(42px, 6vh, 65px);
+  }
+}
