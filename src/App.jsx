@@ -87,7 +87,7 @@ function App(){
  const [pass,setPass]=useState('');
  const [teacherEmail,setTeacherEmail]=useState('');
  const [dbMessage,setDbMessage]=useState('');
- const [dateMode,setDateMode]=useState('range');
+ const [dateMode,setDateMode]=useState('all');
  const [dateFrom,setDateFrom]=useState('2026-10-01');
  const [dateTo,setDateTo]=useState('2026-10-24');
  const [singleDate,setSingleDate]=useState('2026-10-24');
@@ -125,29 +125,84 @@ function App(){
  const clickMission=CLICK_MISSIONS[(level-1+CLICK_MISSIONS.length)%CLICK_MISSIONS.length];
  const clickGoal=ageYears<=3?2:ageYears===4?3:Math.min(4,clickMission.correct.length);
  const dragMission=DRAG_MISSIONS[(level-11+DRAG_MISSIONS.length)%DRAG_MISSIONS.length];
+ const dragPairCount=ageYears<=3?3:ageYears===4?4:5;
+ const dragPairs=useMemo(()=>{
+  const pool=[];
+  const seen=new Set();
+  for(const missionItem of DRAG_MISSIONS){
+   for(const pair of missionItem.pairs){
+    const signature=`${pair.id}|${pair.object}|${pair.target}`;
+    if(!seen.has(signature)){seen.add(signature);pool.push(pair);}
+   }
+  }
+  const selected=[...dragMission.pairs];
+  for(const pair of pool){
+   if(selected.length>=dragPairCount)break;
+   if(!selected.some(p=>p.id===pair.id && p.object===pair.object && p.target===pair.target))selected.push(pair);
+  }
+  // Mezcla Fisher-Yates con semillas diferentes para que cada columna tenga
+  // un orden independiente y no se pueda resolver por correspondencia visual.
+  const shuffle=(items,salt)=>{
+   const result=[...items];
+   let seed=(level*9301+ageYears*49297+salt*233+result.length*719)>>>0;
+   const random=()=>{
+    seed=(seed*1664525+1013904223)>>>0;
+    return seed/4294967296;
+   };
+   for(let i=result.length-1;i>0;i--){
+    const j=Math.floor(random()*(i+1));
+    [result[i],result[j]]=[result[j],result[i]];
+   }
+   return result;
+  };
+  const objects=shuffle(selected,11);
+  let targets=shuffle(selected,97);
+  // Si por casualidad coinciden, vuelve a mezclar destinos con otra semilla.
+  if(targets.every((item,index)=>item.id===objects[index]?.id)){
+   targets=shuffle(selected,193);
+  }
+  return {pairs:selected,objects,targets};
+ },[dragMission,dragPairCount,level,ageYears]);
  const mission=KEY_MISSIONS[(level-1)%10];
  const gridSize=useMemo(()=>{
   const progression=ageYears<=3?[4,4,5,5,6,6]:ageYears===4?[4,5,5,6,7,7]:[5,5,6,7,8,8];
   return progression[Math.min(5,Math.floor((level-1)/5))];
  },[ageYears,level]);
  const target=[gridSize-1,gridSize-1];
- // El recorrido seguro en forma de L (fila superior y columna derecha) siempre queda libre.
- // Los árboles y bombas solo aparecen fuera de ese recorrido, así la meta siempre es alcanzable.
+ // Genera un camino seguro diferente por nivel y edad. El recorrido puede cruzar
+ // el centro del tablero; ya no se reserva siempre la fila superior y la columna derecha.
  const maze=useMemo(()=>{
-  const trees=new Set(),bombs=new Set();
-  const safe=(r,c)=>r===0||c===gridSize-1;
-  const candidates=[];
-  for(let r=1;r<gridSize;r++)for(let c=0;c<gridSize-1;c++)candidates.push([r,c]);
+  const trees=new Set(),bombs=new Set(),safePath=new Set();
   const seed=level*17+ageYears*31;
+  let r=0,c=0,step=0;
+  safePath.add(`${r},${c}`);
+  // Camino monotónico aleatorio: cada paso avanza a la derecha o hacia abajo,
+  // por lo que siempre llega a la casa sin retroceder ni salir del tablero.
+  while(r<gridSize-1||c<gridSize-1){
+   const canRight=c<gridSize-1,canDown=r<gridSize-1;
+   let goRight;
+   if(!canDown) goRight=true;
+   else if(!canRight) goRight=false;
+   else {
+    const mix=(seed*9301+(step+1)*49297+(r+3)*233+(c+5)*719)%997;
+    goRight=(mix%100)<(30+((level+ageYears+step)%41));
+   }
+   if(goRight)c++; else r++;
+   safePath.add(`${r},${c}`);
+   step++;
+  }
+  const candidates=[];
+  for(let rr=0;rr<gridSize;rr++)for(let cc=0;cc<gridSize;cc++){
+   if(!safePath.has(`${rr},${cc}`)&&!(rr===0&&cc===0)&&!(rr===gridSize-1&&cc===gridSize-1))candidates.push([rr,cc]);
+  }
   candidates.sort((a,b)=>(((a[0]*13+a[1]*7+seed)%37)-((b[0]*13+b[1]*7+seed)%37)));
   const treeCount=Math.min(candidates.length,Math.max(0,Math.floor((level-1)/4)+(ageYears-3)));
   const bombCount=Math.min(candidates.length-treeCount,Math.max(0,Math.floor((level-3)/4)+(ageYears-3)));
-  candidates.forEach(([r,c],i)=>{
-   if(safe(r,c))return;
-   if(i<treeCount)trees.add(`${r},${c}`);
-   else if(i<treeCount+bombCount)bombs.add(`${r},${c}`);
+  candidates.forEach(([rr,cc],i)=>{
+   if(i<treeCount)trees.add(`${rr},${cc}`);
+   else if(i<treeCount+bombCount)bombs.add(`${rr},${cc}`);
   });
-  return {trees,bombs};
+  return {trees,bombs,safePath};
  },[level,gridSize,ageYears]);
  const trees=maze.trees,bombs=maze.bombs;
  const shapeStart=(()=>{const m=shape.path.match(/^M\s*([\d.-]+)[,\s]+([\d.-]+)/i);return m?{x:Number(m[1]),y:Number(m[2])}:{x:150,y:38}})();
@@ -241,18 +296,35 @@ function App(){
   if(pos[0]===target[0]&&pos[1]===target[1]){passLevel(100,{keyboardMoves:collected+1,keyboardAccuracy:100,targetCell:target})}
  },[pos,view,game]);
  function saveRecord(pct,metrics={}){
-  const record={id:Date.now()+Math.random(),name,age:student.age,game,level,passed:pct>=80,percent:pct,metrics,date:new Date().toISOString(),teacher:TEACHER};
+  const record={id:Date.now()+Math.random(),name,age:student.age,game,level,passed:metrics.levelOutcome==='completed'||pct>=80,percent:pct,metrics,date:new Date().toISOString(),teacher:TEACHER};
   setRecords(old=>[...old,record]);
   if(supabaseConfigured&&supabase){
    supabase.from('pmd_results').insert({
     student_first_name:student.first.trim(),student_last_name:student.last.trim(),
-    age:student.age,game,level,score_percent:pct,passed:pct>=80,metrics,teacher:TEACHER
+    age:student.age,game,level,score_percent:pct,passed:metrics.levelOutcome==='completed'||pct>=80,metrics,teacher:TEACHER
    }).then(({error})=>{if(error)console.error('No se pudo guardar en Supabase:',error.message)});
   }
  }
+ function calculateRubric(pct, telemetry={}){
+  // Rúbrica inicial: logro 60 %, precisión 25 %, autonomía observada 15 %.
+  // El tiempo se registra como dato contextual y no reduce la nota.
+  const errors=Math.max(0,Number(telemetry.errorCount)||0);
+  const actions=Math.max(0,Number(telemetry.actionCount)||0);
+  const precision=actions>0?Math.round(Math.max(0,Math.min(100,((actions-errors)/actions)*100))):100;
+  const hints=Math.max(0,Number(telemetry.hintsUsed)||0);
+  const autonomy=Math.max(0,100-(hints*20));
+  const achievement=Math.max(0,Math.min(100,Number(pct)||0));
+  const score=Math.round(achievement*0.60+precision*0.25+autonomy*0.15);
+  return {achievementScore:achievement,precisionScore:precision,autonomyScore:autonomy,finalScore:score,weights:{achievement:60,precision:25,autonomy:15},timeUsedAsPenalty:false};
+ }
  function passLevel(pct,metrics={}){
   if(completedRef.current)return;completedRef.current=true;
-  saveRecord(pct,buildMetrics(pct,metrics));setFeedback('¡Nivel superado!');setTimeout(()=>{if(level>=30){setView('finished')}else{setLevel(n=>n+1);resetLevel();say('¡Muy bien! Aquí viene el siguiente reto.')}},900);
+  const telemetry=buildMetrics(pct,metrics);
+  const rubric=calculateRubric(pct,telemetry);
+  const finalMetrics={...telemetry,rubric,levelOutcome:'completed',levelScore:rubric.finalScore};
+  saveRecord(rubric.finalScore,finalMetrics);
+  setFeedback(`¡Nivel superado! Desempeño: ${rubric.finalScore}/100`);
+  setTimeout(()=>{if(level>=30){setView('finished')}else{setLevel(n=>n+1);resetLevel();say('¡Muy bien! Aquí viene el siguiente reto.')}},900);
  }
  function measureTrace(points){
   const svg=traceRef.current;if(!svg||points.length<2)return 0;
@@ -290,8 +362,28 @@ function App(){
  function pointerMove(e){if(!drawing)return;const pt=svgPoint(e);const nextStrokes=traceStrokesRef.current.map((stroke,i)=>i===traceStrokesRef.current.length-1?[...stroke,pt]:stroke);traceStrokesRef.current=nextStrokes;setTraceStrokes(nextStrokes);tracePointsRef.current=nextStrokes.flat();setTracePoints(tracePointsRef.current);setTracePct(measureTrace(tracePointsRef.current))}
  function pointerUp(){if(!drawing)return;setDrawing(false);/* Cada segmento queda separado; se puede soltar y continuar sin líneas de unión. */}
  function eraseTrace(){traceStrokesRef.current=[];tracePointsRef.current=[];setTraceStrokes([]);setTracePoints([]);setTracePct(0);setDrawing(false);say('Dibujo borrado. Puedes empezar de nuevo.')}
- function clickObject(i){if(game!=='mouse'||level>10||isTrace)return;if(clicked.includes(i))return;if(!clickMission.correct.includes(i)){say('Busca el dibujo grande que aparece arriba.');return}const next=[...clicked,i];setClicked(next);say('¡Muy bien!');if(next.length>=clickGoal)passLevel(100,{mouseClicks:next.length,clickGoal,clickAccuracy:100})}
- function onDrop(e,targetId){e.preventDefault();if(!isDrag)return;const objectId=e.dataTransfer.getData('text/plain');if(objectId!==targetId){say('¡Inténtalo otra vez! Busca la pareja correcta.');return}if(draggedItems.includes(targetId))return;const next=[...draggedItems,targetId];setDraggedItems(next);setDragged(true);say('¡Muy bien! Encontraste una pareja.');const dragGoal=ageYears<=3?2:3;if(next.length>=dragGoal)passLevel(100,{dragAndDrop:true,draggedPairs:next.length,dragGoal,mouseAccuracy:100})}
+ function clickObject(i){if(game!=='mouse'||level>10||isTrace)return;if(clicked.includes(i))return;if(!clickMission.correct.includes(i)){recordError('incorrect_click');setAttempts(a=>a+1);say('Busca el dibujo grande que aparece arriba.');return}const next=[...clicked,i];setClicked(next);say('¡Muy bien!');if(next.length>=clickGoal)passLevel(100,{mouseClicks:next.length,clickGoal,clickAccuracy:100})}
+ function onDrop(e,targetId){
+  e.preventDefault();
+  e.stopPropagation();
+  if(!isDrag||completedRef.current)return;
+  const types=Array.from(e.dataTransfer?.types||[]);
+  if(!types.includes('text/plain'))return;
+  const objectId=e.dataTransfer.getData('text/plain');
+  // Solo se acepta una liberación real sobre el destino correspondiente.
+  if(!objectId||!dragPairs.pairs.some(p=>p.id===objectId)||objectId!==targetId){
+   recordError('incorrect_drag_drop');
+   say('¡Inténtalo otra vez! Busca la pareja correcta.');
+   return;
+  }
+  if(draggedItems.includes(targetId))return;
+  const next=[...draggedItems,targetId];
+  setDraggedItems(next);
+  setDragged(true);
+  say('¡Muy bien! Encontraste una pareja.');
+  const dragGoal=dragPairs.pairs.length;
+  if(next.length>=dragGoal)passLevel(100,{dragAndDrop:true,draggedPairs:next.length,dragGoal,mouseAccuracy:100,allPairsCompleted:true});
+ }
  async function teacherLogin(e){
   e.preventDefault();setError('');setDbMessage('');
   if(!supabaseConfigured||!supabase){setError('Falta configurar VITE_SUPABASE_URL y VITE_SUPABASE_ANON_KEY en el archivo .env.');return}
@@ -321,14 +413,14 @@ function App(){
     r.name,
     r.age,
     r.records,
-    r.grades[0]?.percent ?? 0,
-    r.grades[0]?.grade ?? 'C',
-    r.grades[1]?.percent ?? 0,
-    r.grades[1]?.grade ?? 'C',
-    r.grades[2]?.percent ?? 0,
-    r.grades[2]?.grade ?? 'C',
-    r.grades[3]?.percent ?? 0,
-    r.grades[3]?.grade ?? 'C'
+    r.grades[0]?.percent ?? '',
+    r.grades[0]?.grade ?? 'S/D',
+    r.grades[1]?.percent ?? '',
+    r.grades[1]?.grade ?? 'S/D',
+    r.grades[2]?.percent ?? '',
+    r.grades[2]?.grade ?? 'S/D',
+    r.grades[3]?.percent ?? '',
+    r.grades[3]?.grade ?? 'S/D'
    ])
   ];
   const worksheet=XLSX.utils.aoa_to_sheet(rows);
@@ -344,8 +436,52 @@ function App(){
   const filterLabel=dateMode==='all'?'todos-los-registros':dateMode==='day'?singleDate:`${dateFrom}_a_${dateTo}`;
   XLSX.writeFile(workbook,`pequemundo-notas-por-capacidad-${filterLabel}.xlsx`);
  }
- const reports=useMemo(()=>[...new Set(filteredRecords.map(r=>r.name))].map(n=>{const rr=filteredRecords.filter(r=>r.name===n),avg=fn=>{const a=rr.filter(fn);return a.length?Math.round(a.reduce((s,x)=>s+x.percent,0)/a.length):0};const values=[avg(r=>r.metrics.personalize),avg(r=>r.metrics.manage),avg(r=>r.game==='keyboard'),avg(r=>r.metrics.drawingAccuracy||r.metrics.mouseAccuracy)];return{name:n,age:rr.at(-1)?.age,records:rr.length,grades:CAPS.map((c,i)=>({name:c,percent:values[i],grade:grade(values[i])}))}}),[filteredRecords]);
- const isTrace=game==='mouse'&&level>=21;
+ const reports=useMemo(()=>{
+   // Agrupa por nombre normalizado y edad para no mezclar estudiantes distintos.
+   const groups=new Map();
+   for(const record of filteredRecords){
+    const normalizedName=String(record.name||'').trim().toLocaleLowerCase('es');
+    const key=`${normalizedName}|${record.age||''}`;
+    if(!groups.has(key))groups.set(key,[]);
+    groups.get(key).push(record);
+   }
+   const average=(items,selector)=>{
+    const values=items.map(selector).filter(v=>typeof v==='number'&&Number.isFinite(v));
+    return values.length?Math.round(values.reduce((sum,v)=>sum+v,0)/values.length):null;
+   };
+   return [...groups.entries()].map(([key,items])=>{
+    // Si una capacidad no tiene métrica guardada, se informa S/D, no cero.
+    const values=[
+     // Estas dos capacidades requieren actividades específicas antes de calificarse.
+     average(items,r=>r.metrics?.personalize),
+     average(items,r=>r.metrics?.manage),
+     average(items,r=>r.game==='keyboard'?(r.metrics?.rubric?.finalScore ?? Number(r.percent)):null),
+     average(items,r=>{
+      if(r.game!=='mouse')return null;
+      const rubricScore=r.metrics?.rubric?.finalScore;
+      if(typeof rubricScore==='number'&&Number.isFinite(rubricScore))return rubricScore;
+      for(const metricName of ['drawingAccuracy','mouseAccuracy','clickAccuracy']){
+       const value=r.metrics?.[metricName];
+       if(typeof value==='number'&&Number.isFinite(value))return value;
+      }
+      return null;
+     })
+    ];
+    const overall=average(items,r=>typeof r.metrics?.rubric?.finalScore==='number'?r.metrics.rubric.finalScore:Number(r.percent));
+    return {
+     key,
+     name:items[0].name,
+     age:items[items.length-1]?.age,
+     records:items.length,
+     grades:CAPS.map((capability,index)=>({
+      name:capability,
+      percent:values[index],
+      grade:values[index]===null?'S/D':grade(values[index])
+     }))
+    };
+   });
+  },[filteredRecords]);
+  const isTrace=game==='mouse'&&level>=21;
  const isDrag=game==='mouse'&&level>=11&&level<=20;
  const title=game==='keyboard'?KEY_TITLES[level-1]:MOUSE_TITLES[level-1];
  return <div className={view==='play'?'app-shell playing':view==='teacher'?'app-shell teacher-shell':'app-shell'}>
@@ -356,11 +492,11 @@ function App(){
  {game==='keyboard'&&<div className="keyboard-stage"><div className="grid-board" style={{'--grid-size':gridSize}}>{Array.from({length:gridSize*gridSize},(_,i)=>{const r=Math.floor(i/gridSize),c=i%gridSize,isPlayer=pos[0]===r&&pos[1]===c,isGoal=r===target[0]&&c===target[1],isBomb=bombs.has(`${r},${c}`),isTree=trees.has(`${r},${c}`);return <div className={`grid-cell ${isPlayer?'player-cell':''} ${isGoal?'goal-cell':''} ${isBomb?'bomb-cell':''} ${isTree?'tree-cell':''}`} key={i}>{isPlayer?'🐰':isGoal?mission[1]:isBomb?'💣':isTree?'🌳':''}</div>})}</div><aside className="maze-side"><div className="goal-display"><span>VE HASTA AQUÍ</span><strong>{mission[1]}</strong><b>{mission[0]}</b></div><p className="maze-progress">Movimientos: {collected}<br/>Evita las bombas.</p><div className="arrow-pad"><button onClick={()=>move('ArrowUp')}>↑</button><div><button onClick={()=>move('ArrowLeft')}>←</button><button onClick={()=>move('ArrowDown')}>↓</button><button onClick={()=>move('ArrowRight')}>→</button></div><small>Usa las flechas del teclado.</small></div></aside><p className="feedback maze-feedback">{feedback}</p></div>}
  {game==='mouse'&&isTrace&&<div className="trace-stage"><div className="trace-side"><span className="big-emoji">{shape.emoji}</span><h2>{shape.name}</h2><p>Repasa el contorno completo.</p><div className="mini-progress"><span style={{width:tracePct+'%'}}/></div><strong>{tracePct}% completado</strong><p className="hint">Puedes dibujar en varios intentos antes de comprobar. Si no llegas al 80 %, sigue practicando.</p></div><svg ref={traceRef} className="trace-canvas" viewBox="0 0 300 260" onPointerDown={pointerDown} onPointerMove={pointerMove} onPointerUp={pointerUp} onPointerCancel={()=>{setDrawing(false);tracePointsRef.current=[];setTracePoints([])}}><path d={shape.path} className="guide-path"/>{traceStrokes.map((stroke,i)=><polyline key={i} points={stroke.map(p=>`${p.x},${p.y}`).join(' ')} className="user-line"/>)}<circle cx={shapeStart.x} cy={shapeStart.y} r="7" className="start-dot"/><text x={shapeStart.x} y={Math.max(12,shapeStart.y-15)} textAnchor="middle" className="svg-label">EMPIEZA AQUÍ</text></svg><div className="trace-actions"><button className="ghost erase-button" onClick={eraseTrace}>⌫ Borrar y empezar de nuevo</button><button className="primary" onClick={finishTrace}>¡Terminé! Comprobar dibujo</button></div></div>}
  {game==='mouse'&&!isTrace&&!isDrag&&<div className="simple-mouse-stage click-game-stage"><h2>{title}</h2><p>{clickMission.prompt}</p><div className="target-to-find" aria-label={`Busca ${clickMission.targetName}`}><span>BUSCA ESTE DIBUJO</span><strong>{clickMission.target}</strong><b>{clickMission.targetName}</b></div><div className="click-targets">{clickMission.items.map((v,i)=><button key={i} className={`${clicked.includes(i)?'selected-target':''} ${!clickMission.correct.includes(i)?'distractor-target':''}`} onClick={()=>clickObject(i)} aria-label={`Objeto ${i+1}`}>{v}</button>)}</div><div className="click-counter" aria-live="polite"><span>OBJETOS ENCONTRADOS</span><strong>{clicked.length}<i>/{clickGoal}</i></strong><small>{clicked.length>=clickGoal?'¡Reto completado!':`Encuentra ${clickGoal-clicked.length} más`}</small></div></div>}
- {game==='mouse'&&isDrag&&<div className="simple-mouse-stage drag-game-stage"><h2>{dragMission.title}</h2><p>{dragMission.prompt}</p><div className="drag-counter" aria-live="polite"><strong>{draggedItems.length}<i>/{ageYears<=3?2:3}</i></strong><span>{draggedItems.length>=(ageYears<=3?2:3)?'¡Todas las parejas!':`Faltan ${Math.max(0,(ageYears<=3?2:3)-draggedItems.length)} objetos`}</span></div><div className="drag-matching-board"><div className="drag-source-column"><h3>ARRASTRA</h3>{dragMission.pairs.filter(p=>!draggedItems.includes(p.id)).map(p=><div key={p.id} draggable onDragStart={e=>{e.dataTransfer.setData('text/plain',p.id);e.dataTransfer.effectAllowed='move'}} className="drag-object" aria-label={`Arrastra ${p.object}`}>{p.object}</div>)}</div><div className="drag-target-column"><h3>SUELTA EN SU PAREJA</h3>{dragMission.pairs.map(p=><div key={p.id} className={`drag-target ${draggedItems.includes(p.id)?'drag-target-done':''}`} onDragOver={e=>e.preventDefault()} onDrop={e=>onDrop(e,p.id)}><span>{p.target}</span><small>{draggedItems.includes(p.id)?'¡Bien!':p.label}</small></div>)}</div></div></div>}
+ {game==='mouse'&&isDrag&&<div className="simple-mouse-stage drag-game-stage"><h2>{dragMission.title}</h2><p>{dragMission.prompt}</p><div className="drag-counter" aria-live="polite"><strong>{draggedItems.length}<i>/{ageYears<=3?2:3}</i></strong><span>{draggedItems.length>=(ageYears<=3?2:3)?'¡Todas las parejas!':`Faltan ${Math.max(0,(ageYears<=3?2:3)-draggedItems.length)} objetos`}</span></div><div className="drag-matching-board"><div className="drag-source-column"><h3>ARRASTRA</h3>{dragPairs.objects.filter(p=>!draggedItems.includes(p.id)).map(p=><div key={`${p.id}-${p.object}-${p.target}`} draggable onDragStart={e=>{e.dataTransfer.clearData();e.dataTransfer.setData('text/plain',p.id);e.dataTransfer.effectAllowed='move'}} className="drag-object" aria-label={`Arrastra ${p.object}`}>{p.object}</div>)}</div><div className="drag-target-column"><h3>SUELTA EN SU PAREJA</h3>{dragPairs.targets.map(p=><div key={`${p.id}-${p.object}-${p.target}`} className={`drag-target ${draggedItems.includes(p.id)?'drag-target-done':''}`} onDragOver={e=>e.preventDefault()} onDrop={e=>onDrop(e,p.id)}><span>{p.target}</span><small>{draggedItems.includes(p.id)?'¡Bien!':p.label}</small></div>)}</div></div></div>}
  <div className="play-bottom"><p className="feedback">{feedback}</p><div className="play-buttons"><button className="ghost" onClick={()=>{resetLevel();say('Puedes volver a intentarlo.')}}>Reintentar nivel</button>{game==='keyboard'&&<button className="primary" onClick={()=>{say('Lleva al conejito hasta el objeto objetivo.')}}>Ver indicación</button>}</div><small>El avance es automático cuando completas correctamente el reto. Para salir de la actividad, usa «Juegos».</small></div></main>}
  {view==='finished'&&<main className="layout finished-view panel"><div className="celebration">🏆 🌟 🎉</div><h1>¡Lo lograste, {student.first}!</h1><p>Has completado los 30 niveles de esta aventura.</p><button className="primary big" onClick={()=>setView('games')}>Volver a los juegos</button></main>}
  {view==='login'&&<main className="layout teacher-login panel"><div className="form-icon">🔐</div><h1>Panel docente</h1><p>Ingresa con el usuario docente creado en Supabase Authentication.</p><form onSubmit={teacherLogin}><label>Correo del docente<input type="email" autoComplete="username" value={teacherEmail} onChange={e=>setTeacherEmail(e.target.value)} required placeholder="docente@colegio.edu.pe"/></label><label>Contraseña<input type="password" autoComplete="current-password" value={pass} onChange={e=>setPass(e.target.value)} required/></label><button className="primary big">Ingresar</button></form>{!supabaseConfigured&&<p className="error">Supabase todavía no está configurado. Completa el archivo .env y reinicia Vite.</p>}{error&&<p className="error">{error}</p>}<button className="ghost" onClick={()=>setView('home')}>Volver</button></main>}
- {view==='teacher'&&<main className="layout teacher-view"><div className="section-heading"><div><div className="eyebrow">PANEL PRIVADO · DOCENTE</div><h1>Reporte de progreso</h1><p>Docente: {TEACHER}</p></div><div className="teacher-actions"><button className="primary" onClick={exportExcel}>Exportar Excel (.xlsx) ↓</button><button className="ghost" onClick={teacherLogout}>Cerrar sesión</button></div></div>{dbMessage&&<p className="report-note">{dbMessage}</p>}<section className="date-filter panel"><h2>Consultar por fecha</h2><div className="date-filter-controls"><label>Vista<select value={dateMode} onChange={e=>setDateMode(e.target.value)}><option value="range">Rango de fechas</option><option value="day">Un día específico</option><option value="all">Todos los registros</option></select></label>{dateMode==='range'&&<><label>Desde<input type="date" value={dateFrom} onChange={e=>setDateFrom(e.target.value)} /></label><label>Hasta<input type="date" value={dateTo} onChange={e=>setDateTo(e.target.value)} /></label></>}{dateMode==='day'&&<label>Fecha<input type="date" value={singleDate} onChange={e=>setSingleDate(e.target.value)} /></label>}<button className="ghost" onClick={()=>{setDateMode('range');setDateFrom('2026-10-01');setDateTo('2026-10-24')}}>Restablecer rango</button></div>{dateMode==='range'&&dateFrom&&dateTo&&dateFrom>dateTo&&<p className="error">La fecha inicial no puede ser posterior a la fecha final.</p>}</section><div className="summary-cards"><div className="summary"><span>Estudiantes registrados</span><b>{reports.length}</b></div><div className="summary"><span>Intentos guardados en el filtro</span><b>{filteredRecords.length}</b></div><div className="summary"><span>Juegos</span><b>2 × 30</b></div></div>{(dateMode==='range'&&dateFrom>dateTo)||reports.length===0?<div className="empty panel"><div>📊</div><h2>{dateMode==='range'&&dateFrom>dateTo?'Revisa el rango de fechas':'No hay resultados en este periodo'}</h2><p>{dateMode==='range'&&dateFrom>dateTo?'La fecha inicial debe ser anterior o igual a la fecha final.':'Prueba otro día o rango de fechas. Los resultados deben tener una fecha guardada en Supabase.'}</p></div>:<div className="table-wrap"><table><thead><tr><th>Estudiante</th><th>Edad</th><th>Registros</th><th>Notas por capacidad</th></tr></thead><tbody>{reports.map(r=><tr key={r.name}><td><strong>{r.name}</strong></td><td>{r.age}</td><td>{r.records}</td><td><div className="grade-list">{r.grades.map(g=><div key={g.name}><span>{g.name}</span><b>{g.percent}% · {g.grade}</b></div>)}</div></td></tr>)}</tbody></table></div>}<div className="report-note">Los resultados se envían a Supabase cuando las variables de conexión están configuradas. Solo el docente autenticado puede consultar la tabla. La escala porcentual es una regla de trabajo y debe contrastarse con los criterios pedagógicos.</div></main>}
+ {view==='teacher'&&<main className="layout teacher-view"><div className="section-heading"><div><div className="eyebrow">PANEL PRIVADO · DOCENTE</div><h1>Reporte de progreso</h1><p>Docente: {TEACHER}</p></div><div className="teacher-actions"><button className="primary" onClick={exportExcel}>Exportar Excel (.xlsx) ↓</button><button className="ghost" onClick={teacherLogout}>Cerrar sesión</button></div></div>{dbMessage&&<p className="report-note">{dbMessage}</p>}<section className="date-filter panel"><h2>Consultar por fecha</h2><div className="date-filter-controls"><label>Vista<select value={dateMode} onChange={e=>setDateMode(e.target.value)}><option value="range">Rango de fechas</option><option value="day">Un día específico</option><option value="all">Todos los registros</option></select></label>{dateMode==='range'&&<><label>Desde<input type="date" value={dateFrom} onChange={e=>setDateFrom(e.target.value)} /></label><label>Hasta<input type="date" value={dateTo} onChange={e=>setDateTo(e.target.value)} /></label></>}{dateMode==='day'&&<label>Fecha<input type="date" value={singleDate} onChange={e=>setSingleDate(e.target.value)} /></label>}<button className="ghost" onClick={()=>setDateMode('all')}>Mostrar todos</button></div>{dateMode==='range'&&dateFrom&&dateTo&&dateFrom>dateTo&&<p className="error">La fecha inicial no puede ser posterior a la fecha final.</p>}</section><div className="summary-cards"><div className="summary"><span>Estudiantes registrados</span><b>{reports.length}</b></div><div className="summary"><span>Resultados de niveles guardados</span><b>{filteredRecords.length}</b></div><div className="summary"><span>Juegos</span><b>2 × 30</b></div></div>{(dateMode==='range'&&dateFrom>dateTo)||reports.length===0?<div className="empty panel"><div>📊</div><h2>{dateMode==='range'&&dateFrom>dateTo?'Revisa el rango de fechas':'No hay resultados en este periodo'}</h2><p>{dateMode==='range'&&dateFrom>dateTo?'La fecha inicial debe ser anterior o igual a la fecha final.':'Prueba otro día o rango de fechas. Los resultados deben tener una fecha guardada en Supabase.'}</p></div>:<div className="table-wrap"><table><thead><tr><th>Estudiante</th><th>Edad</th><th>Niveles registrados</th><th>Desempeño promedio</th><th>Notas por capacidad</th></tr></thead><tbody>{reports.map(r=><tr key={r.key}><td><strong>{r.name}</strong></td><td>{r.age}</td><td>{r.records}</td><td>{r.overall===null?'S/D':`${r.overall}/100`}</td><td><div className="grade-list">{r.grades.map(g=><div key={g.name}><span>{g.name}</span><b>{g.percent===null?'Sin datos':`${g.percent}% · ${g.grade}`}</b></div>)}</div></td></tr>)}</tbody></table></div>}<div className="report-note">La nota por nivel usa una rúbrica inicial: logro 60 %, precisión 25 % y autonomía registrada 15 %. El tiempo se informa, pero no penaliza. Las capacidades sin métricas aparecen como S/D; deben implementarse actividades específicas antes de calificarlas.</div></main>}
  <footer><span>PequeMundo Digital</span><span>Docente: {TEACHER}</span><span>Aprender jugando ✦</span></footer>
  </div>
 }
