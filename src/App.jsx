@@ -399,6 +399,64 @@ function App(){
   setView('home');setPass('');setTeacherEmail('');setDbMessage('');
  }
  const filteredRecords=useMemo(()=>records.filter(r=>{if(dateMode==='all')return true;const stamp=new Date(r.date);if(Number.isNaN(stamp.getTime()))return false;const day=`${stamp.getFullYear()}-${String(stamp.getMonth()+1).padStart(2,'0')}-${String(stamp.getDate()).padStart(2,'0')}`;if(dateMode==='day')return day===singleDate;return day>=dateFrom&&day<=dateTo}),[records,dateMode,dateFrom,dateTo,singleDate]);
+  const reports=useMemo(()=>{
+   // Un informe por estudiante y edad; el avance no se confunde con la nota.
+   const groups=new Map();
+   for(const record of filteredRecords){
+    const normalizedName=String(record.name||'').trim().toLocaleLowerCase('es');
+    const key=`${normalizedName}|${record.age||''}`;
+    if(!groups.has(key))groups.set(key,[]);
+    groups.get(key).push(record);
+   }
+   const average=(items,selector)=>{
+    const values=items.map(selector).filter(v=>typeof v==='number'&&Number.isFinite(v));
+    return values.length?Math.round(values.reduce((sum,v)=>sum+v,0)/values.length):null;
+   };
+   const levelCount=items=>new Set(items.map(r=>r.level)).size;
+   const scoreOf=r=>{
+    const score=r.metrics?.rubric?.finalScore;
+    return typeof score==='number'&&Number.isFinite(score)?score:null;
+   };
+   return [...groups.entries()].map(([key,items])=>{
+    const keyboard=items.filter(r=>r.game==='keyboard');
+    const mouse=items.filter(r=>r.game==='mouse');
+    const click=mouse.filter(r=>r.level>=1&&r.level<=10);
+    const drag=mouse.filter(r=>r.level>=11&&r.level<=20);
+    const drawing=mouse.filter(r=>r.level>=21&&r.level<=30);
+    const keyboardCount=levelCount(keyboard), mouseCount=levelCount(mouse);
+    const clickCount=levelCount(click), dragCount=levelCount(drag), drawingCount=levelCount(drawing);
+    const performance=average(items,scoreOf);
+    // Capacidad 1: los niveles de dibujo son una evidencia inicial de uso de elementos visuales,
+    // no una medición completa de personalización. Capacidad 2: búsqueda/clic y asociación/arrastre.
+    const personalizeScore=average(drawing,r=>{
+     const v=r.metrics?.drawingAccuracy;
+     return typeof v==='number'?v:null;
+    });
+    const manageScore=average([...click,...drag],r=>{
+     const v=r.metrics?.clickAccuracy ?? r.metrics?.mouseAccuracy;
+     return typeof v==='number'?v:scoreOf(r);
+    });
+    const interactScore=average(keyboard,scoreOf);
+    const createScore=average(drawing,r=>{
+     const v=r.metrics?.drawingAccuracy;
+     return typeof v==='number'?v:scoreOf(r);
+    });
+    const values=[personalizeScore,manageScore,interactScore,createScore];
+    const evidenceCounts=[drawingCount,clickCount+dragCount,keyboardCount,drawingCount];
+    const evidenceTargets=[10,20,30,10];
+    return {
+     key,name:items[0].name,age:items[items.length-1]?.age,records:items.length,
+     keyboardCount,mouseCount,clickCount,dragCount,drawingCount,
+     keyboardProgress:Math.round(keyboardCount/30*100),mouseProgress:Math.round(mouseCount/30*100),
+     overall:performance,
+     grades:CAPS.map((capability,index)=>{
+      const score=values[index];
+      const enoughData=evidenceCounts[index]>=evidenceTargets[index] && score!==null;
+      return {name:capability,percent:score,grade:score===null?'Sin evidencia':enoughData?grade(score):'En proceso',evidence:evidenceCounts[index],target:evidenceTargets[index]};
+     })
+    };
+   });
+  },[filteredRecords]);
  function exportExcel(){
   // Exporta un resumen consolidado por estudiante, no una fila por cada nivel.
   const rows=[
@@ -436,51 +494,7 @@ function App(){
   const filterLabel=dateMode==='all'?'todos-los-registros':dateMode==='day'?singleDate:`${dateFrom}_a_${dateTo}`;
   XLSX.writeFile(workbook,`pequemundo-notas-por-capacidad-${filterLabel}.xlsx`);
  }
- const reports=useMemo(()=>{
-   // Agrupa por nombre normalizado y edad para no mezclar estudiantes distintos.
-   const groups=new Map();
-   for(const record of filteredRecords){
-    const normalizedName=String(record.name||'').trim().toLocaleLowerCase('es');
-    const key=`${normalizedName}|${record.age||''}`;
-    if(!groups.has(key))groups.set(key,[]);
-    groups.get(key).push(record);
-   }
-   const average=(items,selector)=>{
-    const values=items.map(selector).filter(v=>typeof v==='number'&&Number.isFinite(v));
-    return values.length?Math.round(values.reduce((sum,v)=>sum+v,0)/values.length):null;
-   };
-   return [...groups.entries()].map(([key,items])=>{
-    // Si una capacidad no tiene métrica guardada, se informa S/D, no cero.
-    const values=[
-     // Estas dos capacidades requieren actividades específicas antes de calificarse.
-     average(items,r=>r.metrics?.personalize),
-     average(items,r=>r.metrics?.manage),
-     average(items,r=>r.game==='keyboard'?(r.metrics?.rubric?.finalScore ?? Number(r.percent)):null),
-     average(items,r=>{
-      if(r.game!=='mouse')return null;
-      const rubricScore=r.metrics?.rubric?.finalScore;
-      if(typeof rubricScore==='number'&&Number.isFinite(rubricScore))return rubricScore;
-      for(const metricName of ['drawingAccuracy','mouseAccuracy','clickAccuracy']){
-       const value=r.metrics?.[metricName];
-       if(typeof value==='number'&&Number.isFinite(value))return value;
-      }
-      return null;
-     })
-    ];
-    const overall=average(items,r=>typeof r.metrics?.rubric?.finalScore==='number'?r.metrics.rubric.finalScore:Number(r.percent));
-    return {
-     key,
-     name:items[0].name,
-     age:items[items.length-1]?.age,
-     records:items.length,
-     grades:CAPS.map((capability,index)=>({
-      name:capability,
-      percent:values[index],
-      grade:values[index]===null?'S/D':grade(values[index])
-     }))
-    };
-   });
-  },[filteredRecords]);
+
   const isTrace=game==='mouse'&&level>=21;
  const isDrag=game==='mouse'&&level>=11&&level<=20;
  const title=game==='keyboard'?KEY_TITLES[level-1]:MOUSE_TITLES[level-1];
@@ -496,7 +510,7 @@ function App(){
  <div className="play-bottom"><p className="feedback">{feedback}</p><div className="play-buttons"><button className="ghost" onClick={()=>{resetLevel();say('Puedes volver a intentarlo.')}}>Reintentar nivel</button>{game==='keyboard'&&<button className="primary" onClick={()=>{say('Lleva al conejito hasta el objeto objetivo.')}}>Ver indicación</button>}</div><small>El avance es automático cuando completas correctamente el reto. Para salir de la actividad, usa «Juegos».</small></div></main>}
  {view==='finished'&&<main className="layout finished-view panel"><div className="celebration">🏆 🌟 🎉</div><h1>¡Lo lograste, {student.first}!</h1><p>Has completado los 30 niveles de esta aventura.</p><button className="primary big" onClick={()=>setView('games')}>Volver a los juegos</button></main>}
  {view==='login'&&<main className="layout teacher-login panel"><div className="form-icon">🔐</div><h1>Panel docente</h1><p>Ingresa con el usuario docente creado en Supabase Authentication.</p><form onSubmit={teacherLogin}><label>Correo del docente<input type="email" autoComplete="username" value={teacherEmail} onChange={e=>setTeacherEmail(e.target.value)} required placeholder="docente@colegio.edu.pe"/></label><label>Contraseña<input type="password" autoComplete="current-password" value={pass} onChange={e=>setPass(e.target.value)} required/></label><button className="primary big">Ingresar</button></form>{!supabaseConfigured&&<p className="error">Supabase todavía no está configurado. Completa el archivo .env y reinicia Vite.</p>}{error&&<p className="error">{error}</p>}<button className="ghost" onClick={()=>setView('home')}>Volver</button></main>}
- {view==='teacher'&&<main className="layout teacher-view"><div className="section-heading"><div><div className="eyebrow">PANEL PRIVADO · DOCENTE</div><h1>Reporte de progreso</h1><p>Docente: {TEACHER}</p></div><div className="teacher-actions"><button className="primary" onClick={exportExcel}>Exportar Excel (.xlsx) ↓</button><button className="ghost" onClick={teacherLogout}>Cerrar sesión</button></div></div>{dbMessage&&<p className="report-note">{dbMessage}</p>}<section className="date-filter panel"><h2>Consultar por fecha</h2><div className="date-filter-controls"><label>Vista<select value={dateMode} onChange={e=>setDateMode(e.target.value)}><option value="range">Rango de fechas</option><option value="day">Un día específico</option><option value="all">Todos los registros</option></select></label>{dateMode==='range'&&<><label>Desde<input type="date" value={dateFrom} onChange={e=>setDateFrom(e.target.value)} /></label><label>Hasta<input type="date" value={dateTo} onChange={e=>setDateTo(e.target.value)} /></label></>}{dateMode==='day'&&<label>Fecha<input type="date" value={singleDate} onChange={e=>setSingleDate(e.target.value)} /></label>}<button className="ghost" onClick={()=>setDateMode('all')}>Mostrar todos</button></div>{dateMode==='range'&&dateFrom&&dateTo&&dateFrom>dateTo&&<p className="error">La fecha inicial no puede ser posterior a la fecha final.</p>}</section><div className="summary-cards"><div className="summary"><span>Estudiantes registrados</span><b>{reports.length}</b></div><div className="summary"><span>Resultados de niveles guardados</span><b>{filteredRecords.length}</b></div><div className="summary"><span>Juegos</span><b>2 × 30</b></div></div>{(dateMode==='range'&&dateFrom>dateTo)||reports.length===0?<div className="empty panel"><div>📊</div><h2>{dateMode==='range'&&dateFrom>dateTo?'Revisa el rango de fechas':'No hay resultados en este periodo'}</h2><p>{dateMode==='range'&&dateFrom>dateTo?'La fecha inicial debe ser anterior o igual a la fecha final.':'Prueba otro día o rango de fechas. Los resultados deben tener una fecha guardada en Supabase.'}</p></div>:<div className="table-wrap"><table><thead><tr><th>Estudiante</th><th>Edad</th><th>Niveles registrados</th><th>Desempeño promedio</th><th>Notas por capacidad</th></tr></thead><tbody>{reports.map(r=><tr key={r.key}><td><strong>{r.name}</strong></td><td>{r.age}</td><td>{r.records}</td><td>{r.overall===null?'S/D':`${r.overall}/100`}</td><td><div className="grade-list">{r.grades.map(g=><div key={g.name}><span>{g.name}</span><b>{g.percent===null?'Sin datos':`${g.percent}% · ${g.grade}`}</b></div>)}</div></td></tr>)}</tbody></table></div>}<div className="report-note">La nota por nivel usa una rúbrica inicial: logro 60 %, precisión 25 % y autonomía registrada 15 %. El tiempo se informa, pero no penaliza. Las capacidades sin métricas aparecen como S/D; deben implementarse actividades específicas antes de calificarlas.</div></main>}
+ {view==='teacher'&&<main className="layout teacher-view"><div className="section-heading"><div><div className="eyebrow">PANEL PRIVADO · DOCENTE</div><h1>Reporte de progreso</h1><p>Docente: {TEACHER}</p></div><div className="teacher-actions"><button className="primary" onClick={exportExcel}>Exportar Excel (.xlsx) ↓</button><button className="ghost" onClick={teacherLogout}>Cerrar sesión</button></div></div>{dbMessage&&<p className="report-note">{dbMessage}</p>}<section className="date-filter panel"><h2>Consultar por fecha</h2><div className="date-filter-controls"><label>Vista<select value={dateMode} onChange={e=>setDateMode(e.target.value)}><option value="range">Rango de fechas</option><option value="day">Un día específico</option><option value="all">Todos los registros</option></select></label>{dateMode==='range'&&<><label>Desde<input type="date" value={dateFrom} onChange={e=>setDateFrom(e.target.value)} /></label><label>Hasta<input type="date" value={dateTo} onChange={e=>setDateTo(e.target.value)} /></label></>}{dateMode==='day'&&<label>Fecha<input type="date" value={singleDate} onChange={e=>setSingleDate(e.target.value)} /></label>}<button className="ghost" onClick={()=>setDateMode('all')}>Mostrar todos</button></div>{dateMode==='range'&&dateFrom&&dateTo&&dateFrom>dateTo&&<p className="error">La fecha inicial no puede ser posterior a la fecha final.</p>}</section><div className="summary-cards"><div className="summary"><span>Estudiantes registrados</span><b>{reports.length}</b></div><div className="summary"><span>Resultados de niveles guardados</span><b>{filteredRecords.length}</b></div><div className="summary"><span>Juegos</span><b>2 × 30</b></div></div>{(dateMode==='range'&&dateFrom>dateTo)||reports.length===0?<div className="empty panel"><div>📊</div><h2>{dateMode==='range'&&dateFrom>dateTo?'Revisa el rango de fechas':'No hay resultados en este periodo'}</h2><p>{dateMode==='range'&&dateFrom>dateTo?'La fecha inicial debe ser anterior o igual a la fecha final.':'Prueba otro día o rango de fechas. Los resultados deben tener una fecha guardada en Supabase.'}</p></div>:<div className="table-wrap"><table><thead><tr><th>Estudiante</th><th>Edad</th><th>Niveles registrados</th><th>Avance por juego</th><th>Desempeño observado</th><th>Evaluación por capacidad</th></tr></thead><tbody>{reports.map(r=><tr key={r.key}><td><strong>{r.name}</strong></td><td>{r.age}</td><td>{r.records}</td><td><div className="grade-list"><div><span>Teclado</span><b>{r.keyboardCount}/30 · {r.keyboardProgress}%</b></div><div><span>Mouse</span><b>{r.mouseCount}/30 · {r.mouseProgress}%</b></div></div></td><td>{typeof r.overall!=='number'?'Sin evidencia':`${r.overall}/100 (niveles completados)`}</td><td><div className="grade-list">{r.grades.map(g=><div key={g.name}><span>{g.name}</span><b>{g.percent===null?g.grade:`${g.percent}% · ${g.grade}`}</b></div>)}</div></td></tr>)}</tbody></table></div>}<div className="report-note">El avance indica niveles completados de 30 por juego y no equivale a una nota final. Personaliza usa provisionalmente la precisión de dibujo como evidencia inicial; para evaluarla con rigor se deberá registrar la selección de colores, figuras o herramientas. Gestiona usa búsqueda/clic y asociación/arrastre; Interactúa usa teclado; Crea usa dibujo. “En proceso” indica que aún falta completar el conjunto de actividades de esa capacidad. Los intentos fallidos no se guardan como registros independientes en esta versión.</div></main>}
  <footer><span>PequeMundo Digital</span><span>Docente: {TEACHER}</span><span>Aprender jugando ✦</span></footer>
  </div>
 }
