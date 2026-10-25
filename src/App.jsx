@@ -125,84 +125,29 @@ function App(){
  const clickMission=CLICK_MISSIONS[(level-1+CLICK_MISSIONS.length)%CLICK_MISSIONS.length];
  const clickGoal=ageYears<=3?2:ageYears===4?3:Math.min(4,clickMission.correct.length);
  const dragMission=DRAG_MISSIONS[(level-11+DRAG_MISSIONS.length)%DRAG_MISSIONS.length];
- const dragPairCount=ageYears<=3?3:ageYears===4?4:5;
- const dragPairs=useMemo(()=>{
-  const pool=[];
-  const seen=new Set();
-  for(const missionItem of DRAG_MISSIONS){
-   for(const pair of missionItem.pairs){
-    const signature=`${pair.id}|${pair.object}|${pair.target}`;
-    if(!seen.has(signature)){seen.add(signature);pool.push(pair);}
-   }
-  }
-  const selected=[...dragMission.pairs];
-  for(const pair of pool){
-   if(selected.length>=dragPairCount)break;
-   if(!selected.some(p=>p.id===pair.id && p.object===pair.object && p.target===pair.target))selected.push(pair);
-  }
-  // Mezcla Fisher-Yates con semillas diferentes para que cada columna tenga
-  // un orden independiente y no se pueda resolver por correspondencia visual.
-  const shuffle=(items,salt)=>{
-   const result=[...items];
-   let seed=(level*9301+ageYears*49297+salt*233+result.length*719)>>>0;
-   const random=()=>{
-    seed=(seed*1664525+1013904223)>>>0;
-    return seed/4294967296;
-   };
-   for(let i=result.length-1;i>0;i--){
-    const j=Math.floor(random()*(i+1));
-    [result[i],result[j]]=[result[j],result[i]];
-   }
-   return result;
-  };
-  const objects=shuffle(selected,11);
-  let targets=shuffle(selected,97);
-  // Si por casualidad coinciden, vuelve a mezclar destinos con otra semilla.
-  if(targets.every((item,index)=>item.id===objects[index]?.id)){
-   targets=shuffle(selected,193);
-  }
-  return {pairs:selected,objects,targets};
- },[dragMission,dragPairCount,level,ageYears]);
  const mission=KEY_MISSIONS[(level-1)%10];
  const gridSize=useMemo(()=>{
   const progression=ageYears<=3?[4,4,5,5,6,6]:ageYears===4?[4,5,5,6,7,7]:[5,5,6,7,8,8];
   return progression[Math.min(5,Math.floor((level-1)/5))];
  },[ageYears,level]);
  const target=[gridSize-1,gridSize-1];
- // Genera un camino seguro diferente por nivel y edad. El recorrido puede cruzar
- // el centro del tablero; ya no se reserva siempre la fila superior y la columna derecha.
+ // El recorrido seguro en forma de L (fila superior y columna derecha) siempre queda libre.
+ // Los árboles y bombas solo aparecen fuera de ese recorrido, así la meta siempre es alcanzable.
  const maze=useMemo(()=>{
-  const trees=new Set(),bombs=new Set(),safePath=new Set();
-  const seed=level*17+ageYears*31;
-  let r=0,c=0,step=0;
-  safePath.add(`${r},${c}`);
-  // Camino monotónico aleatorio: cada paso avanza a la derecha o hacia abajo,
-  // por lo que siempre llega a la casa sin retroceder ni salir del tablero.
-  while(r<gridSize-1||c<gridSize-1){
-   const canRight=c<gridSize-1,canDown=r<gridSize-1;
-   let goRight;
-   if(!canDown) goRight=true;
-   else if(!canRight) goRight=false;
-   else {
-    const mix=(seed*9301+(step+1)*49297+(r+3)*233+(c+5)*719)%997;
-    goRight=(mix%100)<(30+((level+ageYears+step)%41));
-   }
-   if(goRight)c++; else r++;
-   safePath.add(`${r},${c}`);
-   step++;
-  }
+  const trees=new Set(),bombs=new Set();
+  const safe=(r,c)=>r===0||c===gridSize-1;
   const candidates=[];
-  for(let rr=0;rr<gridSize;rr++)for(let cc=0;cc<gridSize;cc++){
-   if(!safePath.has(`${rr},${cc}`)&&!(rr===0&&cc===0)&&!(rr===gridSize-1&&cc===gridSize-1))candidates.push([rr,cc]);
-  }
+  for(let r=1;r<gridSize;r++)for(let c=0;c<gridSize-1;c++)candidates.push([r,c]);
+  const seed=level*17+ageYears*31;
   candidates.sort((a,b)=>(((a[0]*13+a[1]*7+seed)%37)-((b[0]*13+b[1]*7+seed)%37)));
   const treeCount=Math.min(candidates.length,Math.max(0,Math.floor((level-1)/4)+(ageYears-3)));
   const bombCount=Math.min(candidates.length-treeCount,Math.max(0,Math.floor((level-3)/4)+(ageYears-3)));
-  candidates.forEach(([rr,cc],i)=>{
-   if(i<treeCount)trees.add(`${rr},${cc}`);
-   else if(i<treeCount+bombCount)bombs.add(`${rr},${cc}`);
+  candidates.forEach(([r,c],i)=>{
+   if(safe(r,c))return;
+   if(i<treeCount)trees.add(`${r},${c}`);
+   else if(i<treeCount+bombCount)bombs.add(`${r},${c}`);
   });
-  return {trees,bombs,safePath};
+  return {trees,bombs};
  },[level,gridSize,ageYears]);
  const trees=maze.trees,bombs=maze.bombs;
  const shapeStart=(()=>{const m=shape.path.match(/^M\s*([\d.-]+)[,\s]+([\d.-]+)/i);return m?{x:Number(m[1]),y:Number(m[2])}:{x:150,y:38}})();
@@ -346,27 +291,7 @@ function App(){
  function pointerUp(){if(!drawing)return;setDrawing(false);/* Cada segmento queda separado; se puede soltar y continuar sin líneas de unión. */}
  function eraseTrace(){traceStrokesRef.current=[];tracePointsRef.current=[];setTraceStrokes([]);setTracePoints([]);setTracePct(0);setDrawing(false);say('Dibujo borrado. Puedes empezar de nuevo.')}
  function clickObject(i){if(game!=='mouse'||level>10||isTrace)return;if(clicked.includes(i))return;if(!clickMission.correct.includes(i)){say('Busca el dibujo grande que aparece arriba.');return}const next=[...clicked,i];setClicked(next);say('¡Muy bien!');if(next.length>=clickGoal)passLevel(100,{mouseClicks:next.length,clickGoal,clickAccuracy:100})}
- function onDrop(e,targetId){
-  e.preventDefault();
-  e.stopPropagation();
-  if(!isDrag||completedRef.current)return;
-  const types=Array.from(e.dataTransfer?.types||[]);
-  if(!types.includes('text/plain'))return;
-  const objectId=e.dataTransfer.getData('text/plain');
-  // Solo se acepta una liberación real sobre el destino correspondiente.
-  if(!objectId||!dragPairs.pairs.some(p=>p.id===objectId)||objectId!==targetId){
-   recordError('incorrect_drag_drop');
-   say('¡Inténtalo otra vez! Busca la pareja correcta.');
-   return;
-  }
-  if(draggedItems.includes(targetId))return;
-  const next=[...draggedItems,targetId];
-  setDraggedItems(next);
-  setDragged(true);
-  say('¡Muy bien! Encontraste una pareja.');
-  const dragGoal=dragPairs.pairs.length;
-  if(next.length>=dragGoal)passLevel(100,{dragAndDrop:true,draggedPairs:next.length,dragGoal,mouseAccuracy:100,allPairsCompleted:true});
- }
+ function onDrop(e,targetId){e.preventDefault();if(!isDrag)return;const objectId=e.dataTransfer.getData('text/plain');if(objectId!==targetId){say('¡Inténtalo otra vez! Busca la pareja correcta.');return}if(draggedItems.includes(targetId))return;const next=[...draggedItems,targetId];setDraggedItems(next);setDragged(true);say('¡Muy bien! Encontraste una pareja.');const dragGoal=ageYears<=3?2:3;if(next.length>=dragGoal)passLevel(100,{dragAndDrop:true,draggedPairs:next.length,dragGoal,mouseAccuracy:100})}
  async function teacherLogin(e){
   e.preventDefault();setError('');setDbMessage('');
   if(!supabaseConfigured||!supabase){setError('Falta configurar VITE_SUPABASE_URL y VITE_SUPABASE_ANON_KEY en el archivo .env.');return}
@@ -431,7 +356,7 @@ function App(){
  {game==='keyboard'&&<div className="keyboard-stage"><div className="grid-board" style={{'--grid-size':gridSize}}>{Array.from({length:gridSize*gridSize},(_,i)=>{const r=Math.floor(i/gridSize),c=i%gridSize,isPlayer=pos[0]===r&&pos[1]===c,isGoal=r===target[0]&&c===target[1],isBomb=bombs.has(`${r},${c}`),isTree=trees.has(`${r},${c}`);return <div className={`grid-cell ${isPlayer?'player-cell':''} ${isGoal?'goal-cell':''} ${isBomb?'bomb-cell':''} ${isTree?'tree-cell':''}`} key={i}>{isPlayer?'🐰':isGoal?mission[1]:isBomb?'💣':isTree?'🌳':''}</div>})}</div><aside className="maze-side"><div className="goal-display"><span>VE HASTA AQUÍ</span><strong>{mission[1]}</strong><b>{mission[0]}</b></div><p className="maze-progress">Movimientos: {collected}<br/>Evita las bombas.</p><div className="arrow-pad"><button onClick={()=>move('ArrowUp')}>↑</button><div><button onClick={()=>move('ArrowLeft')}>←</button><button onClick={()=>move('ArrowDown')}>↓</button><button onClick={()=>move('ArrowRight')}>→</button></div><small>Usa las flechas del teclado.</small></div></aside><p className="feedback maze-feedback">{feedback}</p></div>}
  {game==='mouse'&&isTrace&&<div className="trace-stage"><div className="trace-side"><span className="big-emoji">{shape.emoji}</span><h2>{shape.name}</h2><p>Repasa el contorno completo.</p><div className="mini-progress"><span style={{width:tracePct+'%'}}/></div><strong>{tracePct}% completado</strong><p className="hint">Puedes dibujar en varios intentos antes de comprobar. Si no llegas al 80 %, sigue practicando.</p></div><svg ref={traceRef} className="trace-canvas" viewBox="0 0 300 260" onPointerDown={pointerDown} onPointerMove={pointerMove} onPointerUp={pointerUp} onPointerCancel={()=>{setDrawing(false);tracePointsRef.current=[];setTracePoints([])}}><path d={shape.path} className="guide-path"/>{traceStrokes.map((stroke,i)=><polyline key={i} points={stroke.map(p=>`${p.x},${p.y}`).join(' ')} className="user-line"/>)}<circle cx={shapeStart.x} cy={shapeStart.y} r="7" className="start-dot"/><text x={shapeStart.x} y={Math.max(12,shapeStart.y-15)} textAnchor="middle" className="svg-label">EMPIEZA AQUÍ</text></svg><div className="trace-actions"><button className="ghost erase-button" onClick={eraseTrace}>⌫ Borrar y empezar de nuevo</button><button className="primary" onClick={finishTrace}>¡Terminé! Comprobar dibujo</button></div></div>}
  {game==='mouse'&&!isTrace&&!isDrag&&<div className="simple-mouse-stage click-game-stage"><h2>{title}</h2><p>{clickMission.prompt}</p><div className="target-to-find" aria-label={`Busca ${clickMission.targetName}`}><span>BUSCA ESTE DIBUJO</span><strong>{clickMission.target}</strong><b>{clickMission.targetName}</b></div><div className="click-targets">{clickMission.items.map((v,i)=><button key={i} className={`${clicked.includes(i)?'selected-target':''} ${!clickMission.correct.includes(i)?'distractor-target':''}`} onClick={()=>clickObject(i)} aria-label={`Objeto ${i+1}`}>{v}</button>)}</div><div className="click-counter" aria-live="polite"><span>OBJETOS ENCONTRADOS</span><strong>{clicked.length}<i>/{clickGoal}</i></strong><small>{clicked.length>=clickGoal?'¡Reto completado!':`Encuentra ${clickGoal-clicked.length} más`}</small></div></div>}
- {game==='mouse'&&isDrag&&<div className="simple-mouse-stage drag-game-stage"><h2>{dragMission.title}</h2><p>{dragMission.prompt}</p><div className="drag-counter" aria-live="polite"><strong>{draggedItems.length}<i>/{ageYears<=3?2:3}</i></strong><span>{draggedItems.length>=(ageYears<=3?2:3)?'¡Todas las parejas!':`Faltan ${Math.max(0,(ageYears<=3?2:3)-draggedItems.length)} objetos`}</span></div><div className="drag-matching-board"><div className="drag-source-column"><h3>ARRASTRA</h3>{dragPairs.objects.filter(p=>!draggedItems.includes(p.id)).map(p=><div key={`${p.id}-${p.object}-${p.target}`} draggable onDragStart={e=>{e.dataTransfer.clearData();e.dataTransfer.setData('text/plain',p.id);e.dataTransfer.effectAllowed='move'}} className="drag-object" aria-label={`Arrastra ${p.object}`}>{p.object}</div>)}</div><div className="drag-target-column"><h3>SUELTA EN SU PAREJA</h3>{dragPairs.targets.map(p=><div key={`${p.id}-${p.object}-${p.target}`} className={`drag-target ${draggedItems.includes(p.id)?'drag-target-done':''}`} onDragOver={e=>e.preventDefault()} onDrop={e=>onDrop(e,p.id)}><span>{p.target}</span><small>{draggedItems.includes(p.id)?'¡Bien!':p.label}</small></div>)}</div></div></div>}
+ {game==='mouse'&&isDrag&&<div className="simple-mouse-stage drag-game-stage"><h2>{dragMission.title}</h2><p>{dragMission.prompt}</p><div className="drag-counter" aria-live="polite"><strong>{draggedItems.length}<i>/{ageYears<=3?2:3}</i></strong><span>{draggedItems.length>=(ageYears<=3?2:3)?'¡Todas las parejas!':`Faltan ${Math.max(0,(ageYears<=3?2:3)-draggedItems.length)} objetos`}</span></div><div className="drag-matching-board"><div className="drag-source-column"><h3>ARRASTRA</h3>{dragMission.pairs.filter(p=>!draggedItems.includes(p.id)).map(p=><div key={p.id} draggable onDragStart={e=>{e.dataTransfer.setData('text/plain',p.id);e.dataTransfer.effectAllowed='move'}} className="drag-object" aria-label={`Arrastra ${p.object}`}>{p.object}</div>)}</div><div className="drag-target-column"><h3>SUELTA EN SU PAREJA</h3>{dragMission.pairs.map(p=><div key={p.id} className={`drag-target ${draggedItems.includes(p.id)?'drag-target-done':''}`} onDragOver={e=>e.preventDefault()} onDrop={e=>onDrop(e,p.id)}><span>{p.target}</span><small>{draggedItems.includes(p.id)?'¡Bien!':p.label}</small></div>)}</div></div></div>}
  <div className="play-bottom"><p className="feedback">{feedback}</p><div className="play-buttons"><button className="ghost" onClick={()=>{resetLevel();say('Puedes volver a intentarlo.')}}>Reintentar nivel</button>{game==='keyboard'&&<button className="primary" onClick={()=>{say('Lleva al conejito hasta el objeto objetivo.')}}>Ver indicación</button>}</div><small>El avance es automático cuando completas correctamente el reto. Para salir de la actividad, usa «Juegos».</small></div></main>}
  {view==='finished'&&<main className="layout finished-view panel"><div className="celebration">🏆 🌟 🎉</div><h1>¡Lo lograste, {student.first}!</h1><p>Has completado los 30 niveles de esta aventura.</p><button className="primary big" onClick={()=>setView('games')}>Volver a los juegos</button></main>}
  {view==='login'&&<main className="layout teacher-login panel"><div className="form-icon">🔐</div><h1>Panel docente</h1><p>Ingresa con el usuario docente creado en Supabase Authentication.</p><form onSubmit={teacherLogin}><label>Correo del docente<input type="email" autoComplete="username" value={teacherEmail} onChange={e=>setTeacherEmail(e.target.value)} required placeholder="docente@colegio.edu.pe"/></label><label>Contraseña<input type="password" autoComplete="current-password" value={pass} onChange={e=>setPass(e.target.value)} required/></label><button className="primary big">Ingresar</button></form>{!supabaseConfigured&&<p className="error">Supabase todavía no está configurado. Completa el archivo .env y reinicia Vite.</p>}{error&&<p className="error">{error}</p>}<button className="ghost" onClick={()=>setView('home')}>Volver</button></main>}
