@@ -374,3 +374,106 @@ html:has(.teacher-shell), body:has(.teacher-shell), #root:has(.teacher-shell) {
   overflow-x: auto;
   overflow-y: visible !important;
 }
+
+
+/* Panel inferior compacto durante los juegos: deja más espacio para el reto */
+.playing .play-bottom {
+  padding: 6px 0 8px !important;
+  margin: 0 !important;
+  min-height: 0 !important;
+  gap: 4px;
+}
+.playing .play-bottom .feedback {
+  margin: 2px 0 4px !important;
+  line-height: 1.2;
+  font-size: clamp(13px, 1.15vw, 16px);
+}
+.playing .play-bottom .play-buttons {
+  gap: 6px;
+  margin: 0 0 4px !important;
+}
+.playing .play-bottom .play-buttons button {
+  min-height: 34px;
+  padding: 6px 14px;
+  font-size: 14px;
+}
+.playing .play-bottom > small {
+  margin: 0 auto;
+  line-height: 1.2;
+  font-size: 10px;
+}
+@media (max-height: 750px) {
+  .playing .play-bottom {
+    padding: 3px 0 5px !important;
+  }
+  .playing .play-bottom .feedback {
+    margin: 0 0 3px !important;
+  }
+  .playing .play-bottom .play-buttons button {
+    min-height: 30px;
+    padding: 4px 12px;
+  }
+  .playing .play-bottom > small {
+    font-size: 9px;
+  }
+}
+
+
+/* Ajuste final: más espacio útil para el juego y pie inferior compacto */
+.play-view {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: calc(100dvh - 150px);
+  max-height: calc(100dvh - 150px);
+  overflow: hidden;
+}
+.play-bottom {
+  flex: 0 0 auto;
+  padding: 5px 0 7px !important;
+  margin-top: auto;
+  min-height: 0;
+}
+.play-bottom .feedback {
+  margin: 0 0 4px !important;
+  line-height: 1.15;
+  font-size: clamp(13px, 1.2vw, 16px);
+}
+.play-buttons {
+  gap: 6px;
+  margin: 0 0 3px !important;
+}
+.play-buttons button {
+  min-height: 30px;
+  padding: 5px 12px;
+  font-size: 13px;
+}
+.play-bottom > small {
+  margin: 0 auto;
+  line-height: 1.1;
+  font-size: 9px;
+}
+.drag-board {
+  min-height: 0;
+  gap: 12px;
+  align-items: start;
+}
+.drag-source-column, .drag-target-column {
+  gap: clamp(4px, .65vh, 8px) !important;
+  min-height: 0;
+}
+.playing .drag-object, .playing .drag-target {
+  min-height: clamp(42px, 7.5vh, 66px);
+}
+@media (max-height: 750px) {
+  .play-view {
+    height: calc(100dvh - 125px);
+    max-height: calc(100dvh - 125px);
+  }
+  .play-bottom { padding: 2px 0 4px !important; }
+  .play-bottom .feedback { margin-bottom: 2px !important; }
+  .play-bottom > small { font-size: 8px; }
+  .playing .drag-object, .playing .drag-target {
+    min-height: clamp(38px, 6.5vh, 54px);
+  }
+}
