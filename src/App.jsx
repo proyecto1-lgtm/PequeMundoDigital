@@ -440,7 +440,10 @@ function App(){
      overall:performance,
      grades:CAPS.map((capability,index)=>{
       const score=values[index];
-      return {name:capability,percent:score,grade:score===null?'Sin evidencia':grade(score),evidence:evidenceCounts[index]};
+      // Si no hay registros para esta capacidad, se muestra 0 % y C
+      // según el criterio de evaluación solicitado por el docente.
+      const currentScore=score===null?0:score;
+      return {name:capability,percent:currentScore,grade:grade(currentScore),evidence:evidenceCounts[index]};
      })
     };
    });
